@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -45,7 +46,7 @@ static unsigned char *load_test_file(int *len)
     return data;
 }
 
-static void test(unsigned char *data, int len, struct ftab *ftab, int bench)
+static void test(unsigned char *data, int len, struct ftab *ftab)
 {
     int ret;
     unsigned char save;
@@ -61,18 +62,43 @@ static void test(unsigned char *data, int len, struct ftab *ftab, int bench)
     data[len-1] = save;
 }
 
+static void bench(unsigned char *data, int len, struct ftab *ftab)
+{
+    const int loops = 1024*1024*1024/len;
+    int ret = 1;
+    double time, size;
+    struct timeval tv1, tv2;
+
+    fprintf(stderr, "bench %s... ", ftab->name);
+    gettimeofday(&tv1, 0);
+    for (int i = 0; i < loops; ++i)
+        ret &= ftab->func(data, len);
+    gettimeofday(&tv2, 0);
+    printf("%s\n", ret?"pass":"FAIL");
+
+    time = tv2.tv_usec - tv1.tv_usec;
+    time = time / 1000000 + tv2.tv_sec - tv1.tv_sec;
+    size = ((double)len * loops) / (1024*1024);
+    printf("time: %.4f s\n", time);
+    printf("data: %.0f MB\n", size);
+    printf("BW: %.2f MB/s\n", size / time);
+}
+
 int main(int argc, char *argv[])
 {
+    int len;
     unsigned char *data;
-    int bench = 0, len;
+    void (*test_bench)(unsigned char *data, int len, struct ftab *ftab);
 
     if (argc > 1)
-        bench = 1;
+        test_bench = bench;
+    else
+        test_bench = test;
 
     data = load_test_file(&len);
 
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i)
-        test(data, len, &ftab[i], bench);
+        test_bench(data, len, &ftab[i]);
 
     free(data);
 
