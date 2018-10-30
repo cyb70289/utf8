@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -7,6 +8,7 @@
 #include <unistd.h>
 
 int utf8_naive(const unsigned char *data, int len);
+int utf8_lookup(const unsigned char *data, int len);
 
 static struct ftab {
     const char *name;
@@ -15,6 +17,9 @@ static struct ftab {
     {
         .name = "naive",
         .func = utf8_naive,
+    }, {
+        .name = "lookup",
+        .func = utf8_lookup,
     },
 };
 
@@ -84,21 +89,34 @@ static void bench(unsigned char *data, int len, struct ftab *ftab)
     printf("BW: %.2f MB/s\n", size / time);
 }
 
+/*
+ * Usage:
+ * $ ./utf8              ==> test all algorithms
+ * $ ./utf8 bench        ==> benchmark all algorithms
+ * $ ./utf8 bench naive  ==> benchmark specific algorithm [naive,lookup,simd]
+ */
 int main(int argc, char *argv[])
 {
     int len;
     unsigned char *data;
+    const char * alg = NULL;
     void (*test_bench)(unsigned char *data, int len, struct ftab *ftab);
 
-    if (argc > 1)
+    test_bench = test;
+    if (argc >= 2 && strcmp(argv[1], "bench") == 0) {
         test_bench = bench;
-    else
-        test_bench = test;
+        if (argc == 3)
+            alg = argv[2];
+    }
 
     data = load_test_file(&len);
 
-    for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i)
+    for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
+        if (alg && strcmp(alg, ftab[i].name) != 0)
+            continue;
         test_bench(data, len, &ftab[i]);
+        printf("\n");
+    }
 
     free(data);
 
