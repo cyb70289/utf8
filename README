@@ -1,0 +1,6 @@
+Fast UTF-8 string validation with SSE and NEON
+
+References:
+- https://lemire.me/blog/2018/05/16/validating-utf-8-strings-using-as-little-as-0-7-cycles-per-byte/
+- http://bjoern.hoehrmann.de/utf-8/decoder/dfa/
+- https://woboq.com/blog/utf-8-processing-using-simd.html
