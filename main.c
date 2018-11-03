@@ -10,6 +10,7 @@
 int utf8_naive(const unsigned char *data, int len);
 int utf8_lookup(const unsigned char *data, int len);
 int utf8_boost(const unsigned char *data, int len);
+int utf8_lemire(const unsigned char *data, int len);
 
 static struct ftab {
     const char *name;
@@ -21,6 +22,9 @@ static struct ftab {
     }, {
         .name = "lookup",
         .func = utf8_lookup,
+    }, {
+        .name = "lemire",
+        .func = utf8_lemire,
     },
 #ifdef BOOST
     {

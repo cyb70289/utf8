@@ -29,4 +29,4 @@ int utf8_lookup(const unsigned char *data, int len)
         state = utf8d[256 + state*16 + utf8d[*data++]];
 
     return state == UTF8_ACCEPT;
-}    
+}
