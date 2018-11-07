@@ -11,6 +11,7 @@ int utf8_naive(const unsigned char *data, int len);
 int utf8_lookup(const unsigned char *data, int len);
 int utf8_boost(const unsigned char *data, int len);
 int utf8_lemire(const unsigned char *data, int len);
+int utf8_range(const unsigned char *data, int len);
 
 static struct ftab {
     const char *name;
@@ -25,6 +26,9 @@ static struct ftab {
     }, {
         .name = "lemire",
         .func = utf8_lemire,
+    }, {
+        .name = "range",
+        .func = utf8_range,
     },
 #ifdef BOOST
     {
