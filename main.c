@@ -66,7 +66,7 @@ static unsigned char *load_test_file(int *len)
     return data;
 }
 
-static void test(unsigned char *data, int len, struct ftab *ftab)
+static void test(const unsigned char *data, int len, struct ftab *ftab)
 {
     int ret;
     unsigned char save;
@@ -76,13 +76,13 @@ static void test(unsigned char *data, int len, struct ftab *ftab)
 
     /* Last byte can only between 00-BF */
     save = data[len-1];
-    data[len-1] = 0xCC;
+    ((unsigned char *)data)[len-1] = 0xCC;
     ret = ftab->func(data, len);
     printf("%s(negative): %s\n", ftab->name, ret?"FAIL":"pass");
-    data[len-1] = save;
+    ((unsigned char *)data)[len-1] = save;
 }
 
-static void bench(unsigned char *data, int len, struct ftab *ftab)
+static void bench(const unsigned char *data, int len, struct ftab *ftab)
 {
     const int loops = 1024*1024*1024/len;
     int ret = 1;
@@ -106,16 +106,16 @@ static void bench(unsigned char *data, int len, struct ftab *ftab)
 
 /*
  * Usage:
- * $ ./utf8              ==> test all algorithms
+ * $ ./utf8              ==> simple test
  * $ ./utf8 bench        ==> benchmark all algorithms
- * $ ./utf8 bench naive  ==> benchmark specific algorithm [naive,lookup,simd]
+ * $ ./utf8 bench range  ==> benchmark specific algorithm [naive,range,...]
  */
 int main(int argc, char *argv[])
 {
     int len;
     unsigned char *data;
     const char * alg = NULL;
-    void (*test_bench)(unsigned char *data, int len, struct ftab *ftab);
+    void (*test_bench)(const unsigned char *data, int len, struct ftab *ftab);
 
     test_bench = test;
     if (argc >= 2 && strcmp(argv[1], "bench") == 0) {
@@ -124,12 +124,26 @@ int main(int argc, char *argv[])
             alg = argv[2];
     }
 
+    /* Load UTF8 test buffer */
     data = load_test_file(&len);
 
+    printf("==================== UTF8 ====================\n");
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
         if (alg && strcmp(alg, ftab[i].name) != 0)
             continue;
-        test_bench(data, len, &ftab[i]);
+        test_bench((const unsigned char *)data, len, &ftab[i]);
+        printf("\n");
+    }
+
+    /* Change test buffer to ascii */
+    for (int i = 0; i < len; i++)
+        data[i] &= 0x7F;
+
+    printf("==================== ASCII ====================\n");
+    for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
+        if (alg && strcmp(alg, ftab[i].name) != 0)
+            continue;
+        test_bench((const unsigned char *)data, len, &ftab[i]);
         printf("\n");
     }
 
