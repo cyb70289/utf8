@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -66,23 +67,164 @@ static unsigned char *load_test_file(int *len)
     return data;
 }
 
-static void test(const unsigned char *data, int len, struct ftab *ftab)
+static void print_test(const unsigned char *data, int len)
 {
-    int ret;
-    unsigned char save;
+    while (len--)
+        printf("\\x%02X", *data++);
 
-    ret = ftab->func(data, len);
-    printf("%s(positive): %s\n", ftab->name, ret?"pass":"FAIL");
-
-    /* Last byte can only between 00-BF */
-    save = data[len-1];
-    ((unsigned char *)data)[len-1] = 0xCC;
-    ret = ftab->func(data, len);
-    printf("%s(negative): %s\n", ftab->name, ret?"FAIL":"pass");
-    ((unsigned char *)data)[len-1] = save;
+    printf("\n");
 }
 
-static void bench(const unsigned char *data, int len, struct ftab *ftab)
+struct test {
+    const unsigned char *data;
+    int len;
+};
+
+static void prepare_test_buf(unsigned char *buf, const struct test *pos,
+                             int pos_len, int pos_idx)
+{
+    /* Round concatenate correct tokens to 1024 bytes */
+    int buf_idx = 0;
+    while (buf_idx < 1024) {
+        int buf_len = 1024 - buf_idx;
+
+        if (buf_len >= pos[pos_idx].len) {
+            memcpy(buf+buf_idx, pos[pos_idx].data, pos[pos_idx].len);
+            buf_idx += pos[pos_idx].len;
+        } else {
+            memset(buf+buf_idx, 0, buf_len);
+            buf_idx += buf_len;
+        }
+
+        if (++pos_idx == pos_len)
+            pos_idx = 0;
+    }
+}
+
+static int test_manual(const struct ftab *ftab)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpointer-sign"
+    /* positive tests */
+    static const struct test pos[] = {
+        {"", 0},
+        {"\x00", 1},
+        {"\x66", 1},
+        {"\x7F", 1},
+        {"\x00\x7F", 2},
+        {"\x7F\x00", 2},
+        {"\xC2\x80", 2},
+        {"\xDF\xBF", 2},
+        {"\xE0\xA0\x80", 3},
+        {"\xE0\xA0\xBF", 3},
+        {"\xED\x9F\x80", 3},
+        {"\xEF\x80\xBF", 3},
+        {"\xF0\x90\xBF\x80", 4},
+        {"\xF2\x81\xBE\x99", 4},
+        {"\xF4\x8F\x88\xAA", 4},
+    };
+
+    /* negative tests */
+    static const struct test neg[] = {
+        {"\x80", 1},
+        {"\xBF", 1},
+        {"\xC0\x80", 2},
+        {"\xC1\x00", 2},
+        {"\xC2\x7F", 2},
+        {"\xDF\xC0", 2},
+        {"\xE0\x9F\x80", 3},
+        {"\xE0\xC2\x80", 3},
+        {"\xED\xA0\x80", 3},
+        {"\xED\x7F\x80", 3},
+        {"\xEF\x80\x00", 3},
+        {"\xF0\x8F\x80\x80", 4},
+        {"\xF0\xEE\x80\x80", 4},
+        {"\xF2\x90\x91\x7F", 4},
+        {"\xF4\x90\x88\xAA", 4},
+        {"\xF4\x00\xBF\xBF", 4},
+    };
+#pragma GCC diagnostic push
+
+    /* Test single token */
+    for (int i = 0; i < sizeof(pos)/sizeof(pos[0]); ++i) {
+        if (ftab->func(pos[i].data, pos[i].len) == 0) {
+            printf("FAILED positive test: ");
+            print_test(pos[i].data, pos[i].len);
+            return 0;
+        }
+    }
+    for (int i = 0; i < sizeof(neg)/sizeof(neg[0]); ++i) {
+        if (ftab->func(neg[i].data, neg[i].len) != 0) {
+            printf("FAILED negitive test: ");
+            print_test(neg[i].data, neg[i].len);
+            return 0;
+        }
+    }
+
+    /* Test shifted buffer to cover 1k length */
+    const int max_size = 1024+32;
+    uint64_t buf64[max_size/8 + 2];
+    /* Offset 8 bytes by 1 byte */
+    unsigned char *buf = ((unsigned char *)buf64) + 1;
+    int buf_len;
+
+    for (int i = 0; i < sizeof(pos)/sizeof(pos[0]); ++i) {
+        /* Positive test: shift 16 bytes, validate each shift */
+        prepare_test_buf(buf, pos, sizeof(pos)/sizeof(pos[0]), i);
+        buf_len = 1024;
+        for (int j = 0; j < 16; ++j) {
+            if (ftab->func(buf, buf_len) == 0) {
+                printf("FAILED positive test: ");
+                print_test(buf, buf_len);
+                return 0;
+            }
+            for (int k= buf_len; k>= 1; --k)
+                buf[k] = buf[k-1];
+            buf[0] = '\x55';
+            ++buf_len;
+        }
+
+        /* Negative test: trunk last non ascii */
+        while (buf_len >= 1 && buf[buf_len-1] <= 0x7F)
+            --buf_len;
+        if (buf_len && ftab->func(buf, buf_len-1) != 0) {
+            printf("FAILED negitive test: ");
+            print_test(buf, buf_len);
+            return 0;
+        }
+    }
+
+    /* Negative test */
+    for (int i = 0; i < sizeof(neg)/sizeof(neg[0]); ++i) {
+        /* Append one error token, shift 16 bytes, validate each shift */
+        prepare_test_buf(buf, pos, sizeof(pos)/sizeof(pos[0]), i);
+        memcpy(buf+1024, neg[i].data, neg[i].len);
+        buf_len = 1024 + neg[i].len;
+        for (int j = 0; j < 16; ++j) {
+            if (ftab->func(buf, buf_len) != 0) {
+                printf("FAILED negative test: ");
+                print_test(buf, buf_len);
+                return 0;
+            }
+            for (int k = buf_len; k >= 1; --k)
+                buf[k] = buf[k-1];
+            buf[0] = '\x66';
+            ++buf_len;
+        }
+    }
+
+    return 1;
+}
+
+static void test(const unsigned char *data, int len, const struct ftab *ftab)
+{
+    printf("%s\n", ftab->name);
+    printf("standard test: %s\n", ftab->func(data, len) ? "pass" : "FAIL");
+
+    printf("manual test: %s\n", test_manual(ftab) ? "pass" : "FAIL");
+}
+
+static void bench(const unsigned char *data, int len, const struct ftab *ftab)
 {
     const int loops = 1024*1024*1024/len;
     int ret = 1;
@@ -119,9 +261,10 @@ int main(int argc, char *argv[])
 {
     int len;
     unsigned char *data;
-    const char * alg = NULL;
-    void (*tb)(const unsigned char *data, int len, struct ftab *ftab) = NULL;
+    const char *alg = NULL;
+    void (*tb)(const unsigned char *data, int len, const struct ftab *ftab);
 
+    tb = NULL;
     if (argc >= 2) {
         if (strcmp(argv[1], "test") == 0)
             tb = test;
@@ -139,7 +282,8 @@ int main(int argc, char *argv[])
     /* Load UTF8 test buffer */
     data = load_test_file(&len);
 
-    printf("==================== UTF8 ====================\n");
+    if (tb == bench)
+        printf("==================== Bench UTF8 ====================\n");
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
         if (alg && strcmp(alg, ftab[i].name) != 0)
             continue;
@@ -147,16 +291,18 @@ int main(int argc, char *argv[])
         printf("\n");
     }
 
-    /* Change test buffer to ascii */
-    for (int i = 0; i < len; i++)
-        data[i] &= 0x7F;
+    if (tb == bench) {
+        printf("==================== Bench ASCII ====================\n");
+        /* Change test buffer to ascii */
+        for (int i = 0; i < len; i++)
+            data[i] &= 0x7F;
 
-    printf("==================== ASCII ====================\n");
-    for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
-        if (alg && strcmp(alg, ftab[i].name) != 0)
-            continue;
-        tb((const unsigned char *)data, len, &ftab[i]);
-        printf("\n");
+        for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
+            if (alg && strcmp(alg, ftab[i].name) != 0)
+                continue;
+            tb((const unsigned char *)data, len, &ftab[i]);
+            printf("\n");
+        }
     }
 
     free(data);
