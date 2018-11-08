@@ -1,6 +1,54 @@
 Fast UTF-8 string validation with SSE and NEON
 
-References:
-- https://lemire.me/blog/2018/05/16/validating-utf-8-strings-using-as-little-as-0-7-cycles-per-byte/
-- http://bjoern.hoehrmann.de/utf-8/decoder/dfa/
-- https://woboq.com/blog/utf-8-processing-using-simd.html
+Brand new UTF-8 validation algorithm which is much faster than existing SIMD implementations.
+Basis idea is to calculate the value range for each byte.
+
+Currently SSE4 version is finished.
+
+Implementations:
+- naive.c:  naive utf-8 validation
+- lookup.c: Lookup-table from http://bjoern.hoehrmann.de/utf-8/decoder/dfa/
+- lemire.c: SIMD version from https://github.com/lemire/fastvalidate-utf-8
+- range.c:  new SIMD algorithm based on value range calculation
+
+==================== Bench UTF8 ====================
+bench naive... pass
+time: 1.8246 s
+data: 1024 MB
+BW: 561.21 MB/s
+
+bench lookup... pass
+time: 3.2963 s
+data: 1024 MB
+BW: 310.65 MB/s
+
+bench lemire... pass
+time: 0.8515 s
+data: 1024 MB
+BW: 1202.62 MB/s
+
+bench range... pass
+time: 0.6105 s
+data: 1024 MB
+BW: 1677.24 MB/s
+
+==================== Bench ASCII ====================
+bench naive... pass
+time: 0.8493 s
+data: 1024 MB
+BW: 1205.68 MB/s
+
+bench lookup... pass
+time: 3.3105 s
+data: 1024 MB
+BW: 309.32 MB/s
+
+bench lemire... pass
+time: 0.8481 s
+data: 1024 MB
+BW: 1207.47 MB/s
+
+bench range... pass
+time: 0.1949 s
+data: 1024 MB
+BW: 5254.14 MB/s
