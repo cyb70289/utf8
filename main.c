@@ -104,24 +104,36 @@ static void bench(const unsigned char *data, int len, struct ftab *ftab)
     printf("BW: %.2f MB/s\n", size / time);
 }
 
-/*
- * Usage:
- * $ ./utf8              ==> simple test
- * $ ./utf8 bench        ==> benchmark all algorithms
- * $ ./utf8 bench range  ==> benchmark specific algorithm [naive,range,...]
- */
+static void usage(const char *bin)
+{
+    printf("Usage:\n");
+    printf("%s test  [alg] ==> test all or one algorithm\n", bin);
+    printf("%s bench [alg] ==> benchmark all or one algorithm\n", bin);
+    printf("[alg] = ");
+    for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i)
+        printf("%s ", ftab[i].name);
+    printf("\n");
+}
+
 int main(int argc, char *argv[])
 {
     int len;
     unsigned char *data;
     const char * alg = NULL;
-    void (*test_bench)(const unsigned char *data, int len, struct ftab *ftab);
+    void (*tb)(const unsigned char *data, int len, struct ftab *ftab) = NULL;
 
-    test_bench = test;
-    if (argc >= 2 && strcmp(argv[1], "bench") == 0) {
-        test_bench = bench;
-        if (argc == 3)
+    if (argc >= 2) {
+        if (strcmp(argv[1], "test") == 0)
+            tb = test;
+        else if (strcmp(argv[1], "bench") == 0)
+            tb = bench;
+        if (argc >= 3)
             alg = argv[2];
+    }
+
+    if (tb == NULL) {
+        usage(argv[0]);
+        return 1;
     }
 
     /* Load UTF8 test buffer */
@@ -131,7 +143,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
         if (alg && strcmp(alg, ftab[i].name) != 0)
             continue;
-        test_bench((const unsigned char *)data, len, &ftab[i]);
+        tb((const unsigned char *)data, len, &ftab[i]);
         printf("\n");
     }
 
@@ -143,7 +155,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
         if (alg && strcmp(alg, ftab[i].name) != 0)
             continue;
-        test_bench((const unsigned char *)data, len, &ftab[i]);
+        tb((const unsigned char *)data, len, &ftab[i]);
         printf("\n");
     }
 
