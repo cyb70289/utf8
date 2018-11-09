@@ -72,7 +72,7 @@ static inline uint8x16_t get_followup_bytes(const uint8x16_t input)
     return vqtbl1q_u8(followup_table, high_nibbles);
 }
 
-static inline uint8x16_t validate(const unsigned char *data, uint8_t *error,
+static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
                                   uint8x16_t range0)
 {
     const uint8x16_t input = vld1q_u8(data);
@@ -84,8 +84,9 @@ static inline uint8x16_t validate(const unsigned char *data, uint8_t *error,
     uint8x16_t fi1 = vdupq_n_u8(0);
     uint8x16_t mask0 = vcgtq_u8(fi0, zero);    /* fi0 > 0 ? 0xFF: 0 */
     uint8x16_t mask1;
-    uint8x16_t errors = vandq_u8(mask0, range0);
     uint8x16_t range1 = vdupq_n_u8(0);
+
+    *error = vorrq_u8(*error, vandq_u8(mask0, range0));
 
     /* range0 |= mask & 6 */
     range0 = vorrq_u8(range0, vandq_u8(mask0, vdupq_n_u8(6)));
@@ -104,7 +105,7 @@ static inline uint8x16_t validate(const unsigned char *data, uint8_t *error,
             mask0 = vcgtq_u8(fi0, zero);
 
             /* overlap: errors |= (mask0 & range0) */
-            errors = vorrq_u8(errors, vandq_u8(mask0, range0));
+            *error = vorrq_u8(*error, vandq_u8(mask0, range0));
 
             /* range += (mask & 1) */
             range1 = vaddq_u8(range1, vandq_u8(mask1, one));
@@ -156,11 +157,8 @@ static inline uint8x16_t validate(const unsigned char *data, uint8_t *error,
     mask1 = vqtbl1q_u8(fi0, vaddq_u8(range0, vdupq_n_u8(8)));
 
     /* errors |= ((input < min) | (input > max)) */
-    errors = vorrq_u8(errors, vcltq_u8(input, mask0));
-    errors = vorrq_u8(errors, vcgtq_u8(input, mask1));
-
-    /* Reduce errors vector */
-    *error |= vmaxvq_u8(errors);
+    *error = vorrq_u8(*error, vcltq_u8(input, mask0));
+    *error = vorrq_u8(*error, vcgtq_u8(input, mask1));
 
     return range1;
 }
@@ -168,9 +166,9 @@ static inline uint8x16_t validate(const unsigned char *data, uint8_t *error,
 int utf8_range(const unsigned char *data, int len)
 {
     if (len >= 16) {
-        uint8_t error = 0;
         uint32_t range3;
         uint8x16_t range = vdupq_n_u8(0);
+        uint8x16_t error = vdupq_n_u8(0);
 
         while (len >= 16) {
             range = validate(data, &error, range);
@@ -180,7 +178,7 @@ int utf8_range(const unsigned char *data, int len)
         }
 
         /* Delay error check till loop ends */
-        if (error)
+        if (vmaxvq_u8(error))
             return 0;
 
         /* At most three followup bytes need to take care */
