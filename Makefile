@@ -2,7 +2,7 @@ CC = gcc
 CXX = g++
 CPPFLAGS = -g -O2 -Wall -march=native
 
-OBJS = main.o naive.o lookup.o lemire.o range.o
+OBJS = main.o naive.o lookup.o lemire.o range-sse.o range-neon.o
 
 utf8: ${OBJS}
 	gcc $^ -o $@
@@ -14,7 +14,7 @@ utf8-boost: ${OBJS} boost.o
 lemire: CFLAGS += -DDEBUG
 
 range: CFLAGS += -DDEBUG
-range: range.o naive.o
+range: range-sse.o range-neon.o naive.o
 	gcc $^ -o $@
 
 .PHONY: clean

@@ -21,13 +21,18 @@ static struct ftab {
     {
         .name = "naive",
         .func = utf8_naive,
-    }, {
+    },
+    {
         .name = "lookup",
         .func = utf8_lookup,
-    }, {
+    },
+#ifdef __x86_64__
+    {
         .name = "lemire",
         .func = utf8_lemire,
-    }, {
+    },
+#endif
+    {
         .name = "range",
         .func = utf8_range,
     },

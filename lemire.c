@@ -1,5 +1,7 @@
 // Adapted from https://github.com/lemire/fastvalidate-utf-8
 
+#ifdef __x86_64__
+
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -235,4 +237,6 @@ int main(void) {
 
   return 0;
 }
+#endif
+
 #endif
