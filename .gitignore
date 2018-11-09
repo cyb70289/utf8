@@ -1,5 +1,6 @@
 utf8
-lemire
+lemire-neon
+lemire-sse
 range
 *.o
 *.swp
