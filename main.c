@@ -183,7 +183,7 @@ static int test_manual(const struct ftab *ftab)
                 print_test(buf, buf_len);
                 return 0;
             }
-            for (int k= buf_len; k>= 1; --k)
+            for (int k = buf_len; k >= 1; --k)
                 buf[k] = buf[k-1];
             buf[0] = '\x55';
             ++buf_len;
@@ -202,7 +202,8 @@ static int test_manual(const struct ftab *ftab)
     /* Negative test */
     for (int i = 0; i < sizeof(neg)/sizeof(neg[0]); ++i) {
         /* Append one error token, shift 16 bytes, validate each shift */
-        prepare_test_buf(buf, pos, sizeof(pos)/sizeof(pos[0]), i);
+        int pos_idx = i % (sizeof(pos)/sizeof(pos[0]));
+        prepare_test_buf(buf, pos, sizeof(pos)/sizeof(pos[0]), pos_idx);
         memcpy(buf+1024, neg[i].data, neg[i].len);
         buf_len = 1024 + neg[i].len;
         for (int j = 0; j < 16; ++j) {
