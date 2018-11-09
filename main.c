@@ -295,6 +295,7 @@ int main(int argc, char *argv[])
         printf("\n");
     }
 
+#if 0
     if (tb == bench) {
         printf("==================== Bench ASCII ====================\n");
         /* Change test buffer to ascii */
@@ -308,6 +309,7 @@ int main(int argc, char *argv[])
             printf("\n");
         }
     }
+#endif
 
     free(data);
 
