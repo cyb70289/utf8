@@ -59,8 +59,8 @@ static const uint8_t _followup_tbl[] = {
 
 static const uint8_t _range_tbl[] = {
     /* 0,    1,    2,    3,    4,    5,    6,    7 */
-    0x00, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2, 0x80, /* min */
-    0x7F, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F, 0xF4, 0x7F, /* max */
+    0x00, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2, 0x00, /* min */
+    0x7F, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F, 0xF4, 0xFF, /* max */
 };
 
 /* Get number of followup bytes to take care per high nibble */
@@ -81,19 +81,21 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
     const uint8x16_t one = vdupq_n_u8(1);
 
     uint8x16_t fi0 = get_followup_bytes(input);
-    uint8x16_t fi1 = vdupq_n_u8(0);
-    uint8x16_t range1 = vdupq_n_u8(0);
+    uint8x16_t fi1;
+    uint8x16_t range1 = zero;
     uint8x16_t mask0, mask1;
+    const uint8x16_t input_mask = vcgtq_u8(fi0, zero); /* where input >= C0 */
+    const uint8x16_t range0_mask = vcgtq_u8(range0, zero); /* where range > 0 */
 
     /* range0 |= (fi0 > 0) & 6 */
-    range0 = vorrq_u8(range0, vandq_u8(vcgtq_u8(fi0, zero), vdupq_n_u8(6)));
+    range0 = vorrq_u8(range0, vandq_u8(input_mask, vdupq_n_u8(6)));
 
     int followup_bytes = vmaxvq_u8(fi0);
 
     if (followup_bytes--) {
         /* Second byte */
-        /* (mask1, mask0) = (fi1, fi0) << 8 */
-        mask1 = vextq_u8(fi0, fi1, 15);
+        /* (mask1, mask0) = (0, fi0) << 8 */
+        mask1 = vextq_u8(fi0, zero, 15);
         mask0 = vextq_u8(zero, fi0, 15);
 
         /* Third byte */
@@ -103,7 +105,7 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
             fi0 = vqsubq_u8(fi0, one);
 
             /* (fi1, fi0) <<= 16 */
-            fi1 = vextq_u8(fi0, fi1, 14);
+            fi1 = vextq_u8(fi0, zero, 14);
             fi0 = vextq_u8(zero, fi0, 14);
 
             mask1 = vorrq_u8(mask1, fi1);
@@ -159,8 +161,12 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
         }
 
         /* range += mask */
-        range1 = vaddq_u8(range1, mask1);
+        range1 = mask1;
         range0 = vaddq_u8(range0, mask0);
+
+        /* Check overlap */
+        mask0 = vorrq_u8(range0_mask, vcgtq_u8(mask0, zero));
+        *error = vorrq_u8(*error, vandq_u8(mask0, input_mask));
     }
 
     fi0 = vld1q_u8(_range_tbl);
@@ -216,10 +222,15 @@ int utf8_range(const unsigned char *data, int len)
 #ifdef DEBUG
 int main(void)
 {
+    /* negative:
+     *
+     *  "\x00\x00\x00\x00\x00\xc2\x80\x00\x00\x00\xe1\x80\x80\x00\x00\xc2" \
+     *  "\xc2\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+     *
+     *  "\x00\x00\x00\x00\x00\xc2\xc2\x80\x00\x00\xe1\x80\x80\x00\x00\x00";
+     */
     const unsigned char src[] =
-        "\x00\x00\x00\x00\xc2\x80\x00\x00\x00\xe0\xa0\x80\x00\x00\xf4\x80" \
-        "\x80\x80\x00\x00\x00\xc2\x80\x00\x00\x00\xe1\x80\x80\x00\x00\xf1" \
-        "\x80\x80\x80\x00\x00";
+        "\x00\x00\x00\x00\x00\xc2\xc2\x80\x00\x00\xe1\x80\x80\x00\x00\x00";
 
     int ret = utf8_range(src, sizeof(src)-1);
     printf("%s\n", ret ? "ok": "bad");

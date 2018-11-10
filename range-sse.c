@@ -91,6 +91,7 @@ static inline __m128i validate(const unsigned char *data, short *error,
     __m128i fi1 = _mm_setzero_si128();
     __m128i mask0 = _mm_cmpgt_epi8(fi0, zero);    /* fi0 > 0 ? 0xFF: 0 */
     __m128i mask1;
+    __m128i errors = _mm_and_si128(mask0, range0);
     __m128i range1 = _mm_setzero_si128();
 
     /* range0 |= mask & 6 */
@@ -108,6 +109,9 @@ static inline __m128i validate(const unsigned char *data, short *error,
             /* mask = (fi > 0 ? 0xFF : 0) */
             mask1 = _mm_cmpgt_epi8(fi1, zero);
             mask0 = _mm_cmpgt_epi8(fi0, zero);
+
+            /* overlap: errors |= (mask0 & range0) */
+            errors = _mm_or_si128(errors, _mm_and_si128(mask0, range0));
 
             /* range += (mask & 1) */
             range1 = _mm_add_epi8(range1, _mm_and_si128(mask1, one));
@@ -158,12 +162,12 @@ static inline __m128i validate(const unsigned char *data, short *error,
     mask0 = _mm_shuffle_epi8(fi0, range0);
     mask1 = _mm_shuffle_epi8(fi0, _mm_add_epi8(range0, _mm_set1_epi8(8)));
 
-    /* fi1 = ((input < min) | (input > max)) */
-    fi1 = _mm_or_si128(_mm_cmplt_epi8(input, mask0),
-                       _mm_cmpgt_epi8(input, mask1));
+    /* errors |= ((input < min) | (input > max)) */
+    errors = _mm_or_si128(errors, _mm_cmplt_epi8(input, mask0));
+    errors = _mm_or_si128(errors, _mm_cmpgt_epi8(input, mask1));
 
-    /* Reduce errors vector, _mm_movemask_epi8 returns 0xFFFF if fi1 == 0 */
-    *error |= ~_mm_movemask_epi8(_mm_cmpeq_epi8(fi1, zero));
+    /* Reduce errors vector, _mm_movemask_epi8 returns 0xFFFF if errors == 0 */
+    *error |= ~_mm_movemask_epi8(_mm_cmpeq_epi8(errors, zero));
 
     return range1;
 }
