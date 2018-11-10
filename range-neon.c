@@ -86,8 +86,6 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
     uint8x16_t mask1;
     uint8x16_t range1 = vdupq_n_u8(0);
 
-    *error = vorrq_u8(*error, vandq_u8(mask0, range0));
-
     /* range0 |= mask & 6 */
     range0 = vorrq_u8(range0, vandq_u8(mask0, vdupq_n_u8(6)));
 
@@ -98,14 +96,11 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
         for (int i = 0; i < max_followup_bytes; ++i) {
             /* (fi1, fi0) <<= 8 */
             fi1 = vextq_u8(fi0, fi1, 15);
-            fi0 = vextq_u8(fi1, fi0, 15);   /* high bit of fi1 must be 0 */
+            fi0 = vextq_u8(zero, fi0, 15);
 
             /* mask = (fi > 0 ? 0xFF : 0) */
             mask1 = vcgtq_u8(fi1, zero);
             mask0 = vcgtq_u8(fi0, zero);
-
-            /* overlap: errors |= (mask0 & range0) */
-            *error = vorrq_u8(*error, vandq_u8(mask0, range0));
 
             /* range += (mask & 1) */
             range1 = vaddq_u8(range1, vandq_u8(mask1, one));
@@ -142,9 +137,8 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
         mask0 = vaddq_u8(mask0, vandq_u8(mask1, vdupq_n_u8(4)));
 
         /* (mask1, mask0) = (0, mask0) << 8 */
-        mask1 = vdupq_n_u8(0);
-        mask1 = vextq_u8(mask0, mask1, 15);
-        mask0 = vextq_u8(mask1, mask0, 15); /* high bit of mask1 must be 0 */
+        mask1 = vextq_u8(mask0, zero, 15);
+        mask0 = vextq_u8(zero, mask0, 15);
 
         /* range += mask */
         range1 = vaddq_u8(range1, mask1);

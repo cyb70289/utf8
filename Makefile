@@ -1,6 +1,6 @@
 CC = gcc
 CXX = g++
-CPPFLAGS = -g -O2 -Wall -march=native
+CPPFLAGS = -g -O3 -Wall -march=native
 
 OBJS = main.o naive.o lookup.o lemire-sse.o lemire-neon.o \
 	   range-sse.o range-neon.o
