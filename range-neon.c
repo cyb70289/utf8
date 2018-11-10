@@ -82,70 +82,87 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t *error,
 
     uint8x16_t fi0 = get_followup_bytes(input);
     uint8x16_t fi1 = vdupq_n_u8(0);
-    uint8x16_t mask0 = vcgtq_u8(fi0, zero);    /* fi0 > 0 ? 0xFF: 0 */
-    uint8x16_t mask1;
     uint8x16_t range1 = vdupq_n_u8(0);
+    uint8x16_t mask0, mask1;
 
-    /* range0 |= mask & 6 */
-    range0 = vorrq_u8(range0, vandq_u8(mask0, vdupq_n_u8(6)));
+    /* range0 |= (fi0 > 0) & 6 */
+    range0 = vorrq_u8(range0, vandq_u8(vcgtq_u8(fi0, zero), vdupq_n_u8(6)));
 
-    const int max_followup_bytes = vmaxvq_u8(fi0);
+    int followup_bytes = vmaxvq_u8(fi0);
 
-    if (max_followup_bytes) {
-        /* Add range 80~BF to followup bytes */
-        for (int i = 0; i < max_followup_bytes; ++i) {
-            /* (fi1, fi0) <<= 8 */
-            fi1 = vextq_u8(fi0, fi1, 15);
+    if (followup_bytes--) {
+        /* Second byte */
+        /* (mask1, mask0) = (fi1, fi0) << 8 */
+        mask1 = vextq_u8(fi0, fi1, 15);
+        mask0 = vextq_u8(zero, fi0, 15);
+
+        /* Third byte */
+        if (followup_bytes--) {
+            /* Third byte */
+            /* fi = (fi >= 1 ? fi-1 : 0) */
+            fi0 = vqsubq_u8(fi0, one);
+
+            /* (fi1, fi0) <<= 16 */
+            fi1 = vextq_u8(fi0, fi1, 14);
+            fi0 = vextq_u8(zero, fi0, 14);
+
+            mask1 = vorrq_u8(mask1, fi1);
+            mask0 = vorrq_u8(mask0, fi0);
+
+            /* Fourth byte */
+            if (followup_bytes) {
+                /* fi = (fi >= 1 ? fi-1 : 0) */
+                fi1 = vqsubq_u8(fi1, one);
+                fi0 = vqsubq_u8(fi0, one);
+
+                /* (fi1, fi0) <<= 8 */
+                fi1 = vextq_u8(fi0, fi1, 15);
+                fi0 = vextq_u8(zero, fi0, 15);
+
+                mask1 = vorrq_u8(mask1, fi1);
+                mask0 = vorrq_u8(mask0, fi0);
+            }
+
+            /* mask[mask==3,2,1] = 1 */
+            mask1 = vandq_u8(vcgtq_u8(mask1, zero), one);
+            mask0 = vandq_u8(vcgtq_u8(mask0, zero), one);
+
+            /*
+             * Second byte: deal with special cases (not 80..BF)
+             * +------------+---------------------+-------------------+
+             * | First Byte | Special Second Byte | range table index |
+             * +------------+---------------------+-------------------+
+             * | E0         | A0..BF              | 2                 |
+             * | ED         | 80..9F              | 3                 |
+             * | F0         | 90..BF              | 4                 |
+             * | F4         | 80..8F              | 5                 |
+             * +------------+---------------------+-------------------+
+             */
+            /* fi0 = (input == 0xE0) & 1 */
+            fi1 = vceqq_u8(input, vdupq_n_u8(0xE0));
+            fi0 = vandq_u8(fi1, one);
+            /* fi0 += (input == 0xED) & 2 */
+            fi1 = vceqq_u8(input, vdupq_n_u8(0xED));
+            fi0 = vaddq_u8(fi0, vandq_u8(fi1, vdupq_n_u8(2)));
+            /* fi0 += (input == 0xF0) & 3 */
+            fi1 = vceqq_u8(input, vdupq_n_u8(0xF0));
+            fi0 = vaddq_u8(fi0, vandq_u8(fi1, vdupq_n_u8(3)));
+            /* fi0 += (input == 0xF4) & 4 */
+            fi1 = vceqq_u8(input, vdupq_n_u8(0xF4));
+            fi0 = vaddq_u8(fi0, vandq_u8(fi1, vdupq_n_u8(4)));
+            /* (fi1, fi0) = (0, fi0) << 8 */
+            fi1 = vextq_u8(fi0, zero, 15);
             fi0 = vextq_u8(zero, fi0, 15);
 
-            /* mask = (fi > 0 ? 0xFF : 0) */
-            mask1 = vcgtq_u8(fi1, zero);
-            mask0 = vcgtq_u8(fi0, zero);
-
-            /* range += (mask & 1) */
-            range1 = vaddq_u8(range1, vandq_u8(mask1, one));
-            range0 = vaddq_u8(range0, vandq_u8(mask0, one));
-
-            /* fi = (fi >= 1 ? fi-1 : 0) */
-            fi1 = vqsubq_u8(fi1, one);
-            fi0 = vqsubq_u8(fi0, one);
+            mask1 = vaddq_u8(mask1, fi1);
+            mask0 = vaddq_u8(mask0, fi0);
         }
-
-        /*
-         * Deal with special cases (not 80..BF)
-         * +------------+---------------------+-------------------+
-         * | First Byte | Special Second Byte | range table index |
-         * +------------+---------------------+-------------------+
-         * | E0         | A0..BF              | 2                 |
-         * | ED         | 80..9F              | 3                 |
-         * | F0         | 90..BF              | 4                 |
-         * | F4         | 80..8F              | 5                 |
-         * +------------+---------------------+-------------------+
-         */
-
-        /* mask0 = (input == 0xE0) & 1 */
-        mask1 = vceqq_u8(input, vdupq_n_u8(0xE0));
-        mask0 = vandq_u8(mask1, one);
-        /* mask0 += (input == 0xED) & 2 */
-        mask1 = vceqq_u8(input, vdupq_n_u8(0xED));
-        mask0 = vaddq_u8(mask0, vandq_u8(mask1, vdupq_n_u8(2)));
-        /* mask0 += (input == 0xF0) & 3 */
-        mask1 = vceqq_u8(input, vdupq_n_u8(0xF0));
-        mask0 = vaddq_u8(mask0, vandq_u8(mask1, vdupq_n_u8(3)));
-        /* mask0 += (input == 0xF4) & 4 */
-        mask1 = vceqq_u8(input, vdupq_n_u8(0xF4));
-        mask0 = vaddq_u8(mask0, vandq_u8(mask1, vdupq_n_u8(4)));
-
-        /* (mask1, mask0) = (0, mask0) << 8 */
-        mask1 = vextq_u8(mask0, zero, 15);
-        mask0 = vextq_u8(zero, mask0, 15);
 
         /* range += mask */
         range1 = vaddq_u8(range1, mask1);
         range0 = vaddq_u8(range0, mask0);
     }
 
-    /* mask0 = min, mask1 = max */
     fi0 = vld1q_u8(_range_tbl);
     mask0 = vqtbl1q_u8(fi0, range0);
     mask1 = vqtbl1q_u8(fi0, vaddq_u8(range0, vdupq_n_u8(8)));
