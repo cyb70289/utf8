@@ -58,26 +58,13 @@ static inline __m128i continuationLengths(__m128i high_nibbles) {
 static inline __m128i carryContinuations(__m128i initial_lengths,
                                          __m128i previous_carries) {
 
-#ifdef DEBUG
-  __m128i right1 = _mm_alignr_epi8(initial_lengths, previous_carries, 16 - 1);
-  print128("initial-carries-shift", &right1);
-  right1 = _mm_subs_epu8(right1, _mm_set1_epi8(1));
-  print128("right1", &right1);
-#else
   __m128i right1 =
       _mm_subs_epu8(_mm_alignr_epi8(initial_lengths, previous_carries, 16 - 1),
                     _mm_set1_epi8(1));
-#endif
   __m128i sum = _mm_add_epi8(initial_lengths, right1);
-#ifdef DEBUG
-  print128("sum", &sum);
-#endif
 
   __m128i right2 = _mm_subs_epu8(_mm_alignr_epi8(sum, previous_carries, 16 - 2),
                                  _mm_set1_epi8(2));
-#ifdef DEBUG
-  print128("right2", &right2);
-#endif
   return _mm_add_epi8(sum, right2);
 }
 
@@ -161,29 +148,16 @@ static inline void count_nibbles(__m128i bytes,
 static struct processed_utf_bytes
 checkUTF8Bytes(__m128i current_bytes, struct processed_utf_bytes *previous,
                __m128i *has_error) {
-#ifdef DEBUG
-  printf("\n========================================\n");
-  print128("current_bytes", &current_bytes);
-#endif
 
   struct processed_utf_bytes pb;
   count_nibbles(current_bytes, &pb);
-#ifdef DEBUG
-  print128("pb.high_nibbles", &pb.high_nibbles);
-#endif
 
   checkSmallerThan0xF4(current_bytes, has_error);
 
   __m128i initial_lengths = continuationLengths(pb.high_nibbles);
-#ifdef DEBUG
-  print128("initial_lengths", &initial_lengths);
-#endif
 
   pb.carried_continuations =
       carryContinuations(initial_lengths, previous->carried_continuations);
-#ifdef DEBUG
-  print128("carried_continuations", &pb.carried_continuations);
-#endif
 
   checkContinuations(initial_lengths, pb.carried_continuations, has_error);
 
