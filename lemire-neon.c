@@ -167,7 +167,7 @@ static inline void count_nibbles(int8x16_t bytes,
 
 // check whether the current bytes are valid UTF-8
 // at the end of the function, previous gets updated
-static struct processed_utf_bytes
+static inline struct processed_utf_bytes
 checkUTF8Bytes(int8x16_t current_bytes, struct processed_utf_bytes *previous,
                int8x16_t *has_error) {
 #ifdef DEBUG
