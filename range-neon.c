@@ -56,7 +56,7 @@ struct previous_input {
     int        follow_max;
 };
 
-static const uint8_t _followup_tbl[] = {
+static const uint8_t _follow_tbl[] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 ~ BF */
     1, 1,                               /* C0 ~ DF */
     2,                                  /* E0 ~ EF */
@@ -70,20 +70,21 @@ static const uint8_t _range_tbl[] = {
 };
 
 /* Get number of followup bytes to take care per high nibble */
-static inline uint8x16_t get_followup_bytes(const uint8x16_t input)
+static inline uint8x16_t get_followup_bytes(const uint8x16_t input,
+        const uint8x16_t follow_table)
 {
     const uint8x16_t high_nibbles = vshrq_n_u8(input, 4);
-    const uint8x16_t followup_table = vld1q_u8(_followup_tbl);
 
-    return vqtbl1q_u8(followup_table, high_nibbles);
+    return vqtbl1q_u8(follow_table, high_nibbles);
 }
 
 static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
-        struct previous_input *prev)
+        struct previous_input *prev, const uint8x16_t follow_table,
+        const uint8x16_t range_table)
 {
     const uint8x16_t input = vld1q_u8(data);
 
-    const uint8x16_t follow_bytes = get_followup_bytes(input);
+    const uint8x16_t follow_bytes = get_followup_bytes(input, follow_table);
     const uint8x16_t follow_mask = vcgtq_u8(follow_bytes, vdupq_n_u8(0));
     uint8x16_t prev_follow_bytes, range, tmp;
 
@@ -126,9 +127,8 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
 #endif
 
     /* Check value range */
-    tmp = vld1q_u8(_range_tbl);
-    uint8x16_t minv = vqtbl1q_u8(tmp, range);
-    uint8x16_t maxv = vqtbl1q_u8(tmp, vaddq_u8(range, vdupq_n_u8(8)));
+    uint8x16_t minv = vqtbl1q_u8(range_table, range);
+    uint8x16_t maxv = vqtbl1q_u8(range_table, vaddq_u8(range, vdupq_n_u8(8)));
 
     /* errors |= ((input < min) | (input > max)) */
     error = vorrq_u8(error, vcltq_u8(input, minv));
@@ -190,10 +190,14 @@ int utf8_range(const unsigned char *data, int len)
         previous_input.follow_bytes = vdupq_n_u8(0);
         previous_input.follow_max = 0;
 
+        const uint8x16_t follow_table = vld1q_u8(_follow_tbl);
+        const uint8x16_t range_table = vld1q_u8(_range_tbl);
+
         uint8x16_t error = vdupq_n_u8(0);
 
         while (len >= 16) {
-            error = validate(data, error, &previous_input);
+            error = validate(data, error, &previous_input,
+                    follow_table, range_table);
 
             data += 16;
             len -= 16;
