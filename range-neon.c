@@ -121,15 +121,8 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     tmp = vextq_u8(prev_follow_bytes, tmp, 13);
     range = vorrq_u8(range, tmp);
 
-#if 1
     /* If token overlaps, range will be 5,6,7 */
     range = vaddq_u8(range, vandq_u8(follow_mask, vdupq_n_u8(4)));
-#else
-    /* Check overlap */
-    error = vorrq_u8(error, vandq_u8(range, follow_mask));
-    /* range = 4 if follow_mask else 0 */
-    range = vorrq_u8(range, vandq_u8(follow_mask, vdupq_n_u8(4)));
-#endif
 
     /* Check value range */
     uint8x16_t minv = vqtbl1q_u8(tables[1], range);
@@ -138,16 +131,6 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     /* errors |= ((input < min) | (input > max)) */
     error = vorrq_u8(error, vcltq_u8(input, minv));
     error = vorrq_u8(error, vcgtq_u8(input, maxv));
-
-#if 0
-    if (vmaxvq_u8(error)) {
-        print128("pinput", prev->input);
-        print128("pbytes", prev->follow_bytes);
-        print128("input", input);
-        print128("range", range);
-        exit(1);
-    }
-#endif
 
     /*
      * Check special cases (not 80..BF)
