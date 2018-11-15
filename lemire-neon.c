@@ -63,26 +63,13 @@ static inline int8x16_t continuationLengths(int8x16_t high_nibbles) {
 static inline int8x16_t carryContinuations(int8x16_t initial_lengths,
                                          int8x16_t previous_carries) {
 
-#ifdef DEBUG
-  int8x16_t right1 = vextq_s8(previous_carries, initial_lengths, 16 - 1);
-  print128("initial-carries-shift", &right1);
-  right1 = vreinterpretq_s8_u8(vqsubq_u8(vreinterpretq_u8_s8(right1), vdupq_n_u8(1)));
-  print128("right1", &right1);
-#else
   int8x16_t right1 =
      vreinterpretq_s8_u8(vqsubq_u8(vreinterpretq_u8_s8(vextq_s8(previous_carries, initial_lengths, 16 - 1)),
                     vdupq_n_u8(1)));
-#endif
   int8x16_t sum = vaddq_s8(initial_lengths, right1);
-#ifdef DEBUG
-  print128("sum", &sum);
-#endif
 
   int8x16_t right2 = vreinterpretq_s8_u8(vqsubq_u8(vreinterpretq_u8_s8(vextq_s8(previous_carries, sum, 16 - 2)),
                                  vdupq_n_u8(2)));
-#ifdef DEBUG
-  print128("right2", &right2);
-#endif
   return vaddq_s8(sum, right2);
 }
 
@@ -170,29 +157,15 @@ static inline void count_nibbles(int8x16_t bytes,
 static inline struct processed_utf_bytes
 checkUTF8Bytes(int8x16_t current_bytes, struct processed_utf_bytes *previous,
                int8x16_t *has_error) {
-#ifdef DEBUG
-  printf("\n========================================\n");
-  print128("current_bytes", &current_bytes);
-#endif
-
   struct processed_utf_bytes pb;
   count_nibbles(current_bytes, &pb);
-#ifdef DEBUG
-  print128("pb.high_nibbles", &pb.high_nibbles);
-#endif
 
   checkSmallerThan0xF4(current_bytes, has_error);
 
   int8x16_t initial_lengths = continuationLengths(pb.high_nibbles);
-#ifdef DEBUG
-  print128("initial_lengths", &initial_lengths);
-#endif
 
   pb.carried_continuations =
       carryContinuations(initial_lengths, previous->carried_continuations);
-#ifdef DEBUG
-  print128("carried_continuations", &pb.carried_continuations);
-#endif
 
   checkContinuations(initial_lengths, pb.carried_continuations, has_error);
 
