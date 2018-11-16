@@ -64,15 +64,16 @@ static const uint8_t _follow_tbl[] = {
 };
 
 static const uint8_t _range_min_tbl[] = {
-    0x00, 0x80, 0x80, 0x80, 0xC2,
+    /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
+    0x00, 0x80, 0x80, 0x80, 0xC2, 0xA0, 0x80, 0x90, 0x80,
     /* Invalid */
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 };
 
 static const uint8_t _range_max_tbl[] = {
-    0x7F, 0xBF, 0xBF, 0xBF, 0xF4,
+    0x7F, 0xBF, 0xBF, 0xBF, 0xF4, 0xBF, 0x9F, 0xBF, 0x8F,
     /* Invalid */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
 /* Get number of followup bytes to take care per high nibble */
@@ -91,11 +92,11 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
 
     const uint8x16_t follow_bytes = get_followup_bytes(input, tables[0]);
     const uint8x16_t follow_mask = vcgtq_u8(follow_bytes, vdupq_n_u8(0));
-    uint8x16_t prev_follow_bytes, range, tmp;
+    uint8x16_t range, tmp;
 
     const int follow_max = vmaxvq_u8(follow_bytes);
 
-    if (follow_max == 0 && prev->follow_max == 0) {
+    if ((follow_max + prev->follow_max) == 0) {
         /* All ascii */
         prev->input = input;
         return vorrq_u8(error, vcgtq_u8(input, vdupq_n_u8(0x7F)));
@@ -106,6 +107,7 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     range = vextq_u8(prev->follow_bytes, follow_bytes, 15);
 
     /* 3rd bytes */
+    uint8x16_t prev_follow_bytes;
     /* saturate sub 1 */
     tmp = vqsubq_u8(follow_bytes, vdupq_n_u8(1));
     prev_follow_bytes = vqsubq_u8(prev->follow_bytes, vdupq_n_u8(1));
@@ -121,8 +123,34 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     tmp = vextq_u8(prev_follow_bytes, tmp, 13);
     range = vorrq_u8(range, tmp);
 
-    /* If token overlaps, range will be 5,6,7 */
+    /* Check overlap */
+    error = vorrq_u8(error, vandq_u8(follow_mask, range));
+
+    /* 4: 0xC2 ~ 0xF4 */
     range = vaddq_u8(range, vandq_u8(follow_mask, vdupq_n_u8(4)));
+
+    /*
+     * Check special cases (not 80..BF)
+     * +------------+---------------------+-------------------+
+     * | First Byte | Special Second Byte | range table index |
+     * +------------+---------------------+-------------------+
+     * | E0         | A0..BF              | 5                 |
+     * | ED         | 80..9F              | 6                 |
+     * | F0         | 90..BF              | 7                 |
+     * | F4         | 80..8F              | 8                 |
+     * +------------+---------------------+-------------------+
+     */
+    uint8x16_t pos;
+    /* tmp = (input, prev.input) << 1 byte */
+    tmp = vextq_u8(prev->input, input, 15);
+    pos = vceqq_u8(tmp, vdupq_n_u8(0xE0));
+    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(3)));  /* 2+3 */
+    pos = vceqq_u8(tmp, vdupq_n_u8(0xED));
+    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(4)));  /* 2+4 */
+    pos = vceqq_u8(tmp, vdupq_n_u8(0xF0));
+    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
+    pos = vceqq_u8(tmp, vdupq_n_u8(0xF4));
+    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(5)));  /* 3+5 */
 
     /* Check value range */
     uint8x16_t minv = vqtbl1q_u8(tables[1], range);
@@ -131,36 +159,6 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     /* errors |= ((input < min) | (input > max)) */
     error = vorrq_u8(error, vcltq_u8(input, minv));
     error = vorrq_u8(error, vcgtq_u8(input, maxv));
-
-    /*
-     * Check special cases (not 80..BF)
-     * +------------+---------------------+-------------------+
-     * | First Byte | Special Second Byte | range table index |
-     * +------------+---------------------+-------------------+
-     * | E0         | A0..BF              | 2                 |
-     * | ED         | 80..9F              | 3                 |
-     * | F0         | 90..BF              | 4                 |
-     * | F4         | 80..8F              | 5                 |
-     * +------------+---------------------+-------------------+
-     */
-    /* tmp = (input, prev.input) << 1 byte */
-    tmp = vextq_u8(prev->input, input, 15);
-    /* tmp == 0xE0 && input < 0xA0 */
-    error = vorrq_u8(error,
-                     vandq_u8(vceqq_u8(tmp, vdupq_n_u8(0xE0)),
-                              vcltq_u8(input, vdupq_n_u8(0xA0))));
-    /* tmp == 0xED && input > 0x9F */
-    error = vorrq_u8(error,
-                     vandq_u8(vceqq_u8(tmp, vdupq_n_u8(0xED)),
-                              vcgtq_u8(input, vdupq_n_u8(0x9F))));
-    /* tmp == 0xF0 && input < 0x90 */
-    error = vorrq_u8(error,
-                     vandq_u8(vceqq_u8(tmp, vdupq_n_u8(0xF0)),
-                              vcltq_u8(input, vdupq_n_u8(0x90))));
-    /* tmp == 0xF4 && input > 0x8F */
-    error = vorrq_u8(error,
-                     vandq_u8(vceqq_u8(tmp, vdupq_n_u8(0xF4)),
-                              vcgtq_u8(input, vdupq_n_u8(0x8F))));
 
     prev->input = input;
     prev->follow_bytes = follow_bytes;
