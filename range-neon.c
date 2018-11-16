@@ -53,7 +53,6 @@ static void print128(const char *s, const uint8x16_t v128)
 struct previous_input {
     uint8x16_t input;
     uint8x16_t follow_bytes;
-    int        follow_max;
 };
 
 static const uint8_t _follow_tbl[] = {
@@ -94,14 +93,6 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     const uint8x16_t follow_bytes = get_followup_bytes(input, tables[0]);
     const uint8x16_t follow_mask = vcgtq_u8(follow_bytes, vdupq_n_u8(0));
     uint8x16_t range, tmp;
-
-    const int follow_max = vmaxvq_u8(follow_bytes);
-
-    if ((follow_max + prev->follow_max) == 0) {
-        /* All ascii */
-        prev->input = input;
-        return vorrq_u8(error, vcgtq_u8(input, vdupq_n_u8(0x7F)));
-    }
 
     /* 2nd byte */
     /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
@@ -160,7 +151,6 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
 
     prev->input = input;
     prev->follow_bytes = follow_bytes;
-    prev->follow_max = follow_max;
 
     return error;
 }
@@ -172,7 +162,6 @@ int utf8_range(const unsigned char *data, int len)
 
         previous_input.input = vdupq_n_u8(0);
         previous_input.follow_bytes = vdupq_n_u8(0);
-        previous_input.follow_max = 0;
 
         /* Cached constant tables */
         uint8x16_t tables[3];
