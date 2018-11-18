@@ -48,163 +48,157 @@ static void print128(const char *s, const __m128i v128)
 }
 #endif
 
+struct previous_input {
+    __m128i input;
+    __m128i follow_bytes;
+};
+
+static const int8_t _follow_tbl[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 ~ BF */
+    1, 1,                               /* C0 ~ DF */
+    2,                                  /* E0 ~ EF */
+    3,                                  /* F0 ~ FF */
+};
+
+static const int8_t _range_min_tbl[] = {
+    /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
+    0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2,
+    /* Must be invalid */
+    0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F,
+};
+
+static const int8_t _range_max_tbl[] = {
+    /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
+    0x7F, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F, 0xF4,
+    /* Must be invalid */
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+};
+
 /* Get number of followup bytes to take care per high nibble */
-static inline __m128i get_followup_bytes(const __m128i input)
+static inline __m128i get_followup_bytes(const __m128i input,
+        const __m128i follow_table)
 {
     /* Why no _mm_srli_epi8 ? */
     const __m128i high_nibbles =
         _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
 
-    const __m128i followup_table =
-        _mm_setr_epi8(
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   /* 00 ~ BF */
-                1, 1,                                 /* C0 ~ DF */
-                2,                                    /* E0 ~ EF */
-                3);                                   /* F0 ~ FF */
-
-    return _mm_shuffle_epi8(followup_table, high_nibbles);
+    return _mm_shuffle_epi8(follow_table, high_nibbles);
 }
 
-static const int8_t _range_tbl[] = {
-    /* 0,    1,    2,    3,    4,    5,    6,    7 */
-    0x00, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2, 0x80, /* min */
-    0x7F, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F, 0xF4, 0x7F, /* max */
-};
-
-static inline int get_max_epi8(const __m128i v, const __m128i zero)
-{
-    /* SSE doesn't support reduce max. Only check all zero. */
-    if (_mm_movemask_epi8(_mm_cmpeq_epi8(v, zero)) == 0xFFFF)
-        return 0;
-    return 3;
-}
-
-static inline __m128i validate(const unsigned char *data, short *error,
-                               __m128i range0)
+static inline __m128i validate(const unsigned char *data, __m128i error,
+       struct previous_input *prev, const __m128i tables[])
 {
     const __m128i input = _mm_lddqu_si128((const __m128i *)data);
 
-    const __m128i zero = _mm_setzero_si128();
-    const __m128i one = _mm_set1_epi8(1);
+    __m128i follow_bytes = get_followup_bytes(input, tables[0]);
+    __m128i follow_mask = _mm_cmpgt_epi8(follow_bytes, _mm_set1_epi8(0));
+    __m128i range, tmp;
 
-    __m128i fi0 = get_followup_bytes(input);
-    __m128i fi1 = _mm_setzero_si128();
-    __m128i mask0 = _mm_cmpgt_epi8(fi0, zero);    /* fi0 > 0 ? 0xFF: 0 */
-    __m128i mask1;
-    __m128i errors = _mm_and_si128(mask0, range0);
-    __m128i range1 = _mm_setzero_si128();
+    /* 2nd byte */
+    /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
+    range = _mm_alignr_epi8(follow_bytes, prev->follow_bytes, 15);
 
-    /* range0 |= mask & 6 */
-    range0 = _mm_or_si128(range0, _mm_and_si128(mask0, _mm_set1_epi8(6)));
+    /* 3rd bytes */
+    __m128i prev_follow_bytes;
+    /* saturate sub 1 */
+    tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(1));
+    prev_follow_bytes = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(1));
+    /* range |= (tmp, prev_follow_bytes) << 2 bytes */
+    tmp = _mm_alignr_epi8(tmp, prev_follow_bytes, 14);
+    range = _mm_or_si128(range, tmp);
 
-    const int max_followup_bytes = get_max_epi8(fi0, zero);
+    /* 4th bytes */
+    /* saturate sub 2 */
+    tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(2));
+    prev_follow_bytes = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(2));
+    /* range |= (tmp, prev_follow_bytes) << 3 bytes */
+    tmp = _mm_alignr_epi8(tmp, prev_follow_bytes, 13);
+    range = _mm_or_si128(range, tmp);
 
-    if (max_followup_bytes) {
-        /* Add range 80~BF to followup bytes */
-        for (int i = 0; i < max_followup_bytes; ++i) {
-            /* (fi1, fi0) <<= 8 */
-            fi1 = _mm_alignr_epi8(fi1, fi0, 15);
-            fi0 = _mm_slli_si128(fi0, 1);
+    /* Overlap will lead to 9, 10, 11 */
+    range = _mm_add_epi8(range, _mm_and_si128(follow_mask, _mm_set1_epi8(8)));
 
-            /* mask = (fi > 0 ? 0xFF : 0) */
-            mask1 = _mm_cmpgt_epi8(fi1, zero);
-            mask0 = _mm_cmpgt_epi8(fi0, zero);
+    /*
+     * Check special cases (not 80..BF)
+     * +------------+---------------------+-------------------+
+     * | First Byte | Special Second Byte | range table index |
+     * +------------+---------------------+-------------------+
+     * | E0         | A0..BF              | 4                 |
+     * | ED         | 80..9F              | 5                 |
+     * | F0         | 90..BF              | 6                 |
+     * | F4         | 80..8F              | 7                 |
+     * +------------+---------------------+-------------------+
+     */
+    __m128i pos;
+    /* tmp = (input, prev.input) << 1 byte */
+    tmp = _mm_alignr_epi8(input, prev->input, 15);
+    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xE0));
+    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(2)));  /*2+2*/
+    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xED));
+    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(3)));  /*2+3*/
+    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xF0));
+    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(3)));  /*3+3*/
+    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xF4));
+    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(4)));  /*3+4*/
 
-            /* overlap: errors |= (mask0 & range0) */
-            errors = _mm_or_si128(errors, _mm_and_si128(mask0, range0));
+    /* Check value range */
+    __m128i minv = _mm_shuffle_epi8(tables[1], range);
+    __m128i maxv = _mm_shuffle_epi8(tables[2], range);
 
-            /* range += (mask & 1) */
-            range1 = _mm_add_epi8(range1, _mm_and_si128(mask1, one));
-            range0 = _mm_add_epi8(range0, _mm_and_si128(mask0, one));
+    /* error |= ((input < min) | (input > max)) */
+    error = _mm_or_si128(error, _mm_cmplt_epi8(input, minv));
+    error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
 
-            /* fi = (fi >= 1 ? fi-1 : 0) */
-            fi1 = _mm_subs_epu8(fi1, one);
-            fi0 = _mm_subs_epu8(fi0, one);
-        }
+    prev->input = input;
+    prev->follow_bytes = follow_bytes;
 
-        /*
-         * Deal with special cases (not 80..BF)
-         * +------------+---------------------+-------------------+
-         * | First Byte | Special Second Byte | range table index |
-         * +------------+---------------------+-------------------+
-         * | E0         | A0..BF              | 2                 |
-         * | ED         | 80..9F              | 3                 |
-         * | F0         | 90..BF              | 4                 |
-         * | F4         | 80..8F              | 5                 |
-         * +------------+---------------------+-------------------+
-         */
-
-        /* mask0 = (input == 0xE0) & 1 */
-        mask1 = _mm_cmpeq_epi8(input, _mm_set1_epi8(0xE0));
-        mask0 = _mm_and_si128(mask1, one);
-        /* mask0 += (input == 0xED) & 2 */
-        mask1 = _mm_cmpeq_epi8(input, _mm_set1_epi8(0xED));
-        mask0 = _mm_add_epi8(mask0, _mm_and_si128(mask1, _mm_set1_epi8(2)));
-        /* mask0 += (input == 0xF0) & 3 */
-        mask1 = _mm_cmpeq_epi8(input, _mm_set1_epi8(0xF0));
-        mask0 = _mm_add_epi8(mask0, _mm_and_si128(mask1, _mm_set1_epi8(3)));
-        /* mask0 += (input == 0xF4) & 4 */
-        mask1 = _mm_cmpeq_epi8(input, _mm_set1_epi8(0xF4));
-        mask0 = _mm_add_epi8(mask0, _mm_and_si128(mask1, _mm_set1_epi8(4)));
-
-        /* (mask1, mask0) = (0, mask0) << 8 */
-        mask1 = _mm_setzero_si128();
-        mask1 = _mm_alignr_epi8(mask1, mask0, 15);
-        mask0 = _mm_slli_si128(mask0, 1);
-
-        /* range += mask */
-        range1 = _mm_add_epi8(range1, mask1);
-        range0 = _mm_add_epi8(range0, mask0);
-    }
-
-    /* mask0 = min, mask1 = max */
-    fi0 = _mm_lddqu_si128((const __m128i *)_range_tbl);
-    mask0 = _mm_shuffle_epi8(fi0, range0);
-    mask1 = _mm_shuffle_epi8(fi0, _mm_add_epi8(range0, _mm_set1_epi8(8)));
-
-    /* errors |= ((input < min) | (input > max)) */
-    errors = _mm_or_si128(errors, _mm_cmplt_epi8(input, mask0));
-    errors = _mm_or_si128(errors, _mm_cmpgt_epi8(input, mask1));
-
-    /* Reduce errors vector, _mm_movemask_epi8 returns 0xFFFF if errors == 0 */
-    *error |= ~_mm_movemask_epi8(_mm_cmpeq_epi8(errors, zero));
-
-    return range1;
+    return error;
 }
 
 int utf8_range(const unsigned char *data, int len)
 {
     if (len >= 16) {
-        short error = 0;
-        __m128i range = _mm_setzero_si128();
+        struct previous_input previous_input;
+
+        previous_input.input = _mm_set1_epi8(0);
+        previous_input.follow_bytes = _mm_set1_epi8(0);
+
+        /* Cached constant tables */
+        __m128i tables[3];
+
+        tables[0] = _mm_lddqu_si128((const __m128i *)_follow_tbl);
+        tables[1] = _mm_lddqu_si128((const __m128i *)_range_min_tbl);
+        tables[2] = _mm_lddqu_si128((const __m128i *)_range_max_tbl);
+
+        __m128i error = _mm_set1_epi8(0);
 
         while (len >= 16) {
-            range = validate(data, &error, range);
+            error = validate(data, error, &previous_input, tables);
 
             data += 16;
             len -= 16;
         }
 
         /* Delay error check till loop ends */
-        if (error)
+        /* Reduce error vector, error_reduced = 0xFFFF if error == 0 */
+        int error_reduced =
+            _mm_movemask_epi8(_mm_cmpeq_epi8(error, _mm_set1_epi8(0)));
+        if (error_reduced != 0xFFFF)
             return 0;
 
-        /* At most three followup bytes need to take care */
-        uint32_t range3 = _mm_extract_epi32(range, 0);
+        /* Find previous token (not 80~BF) */
+        int32_t token4 = _mm_extract_epi32(previous_input.input, 3);
 
-        while (range3) {
-            uint8_t idx = range3 & 7;
-            int8_t input = (int8_t)(*data);
-
-            if (len == 0)
-                return 0;
-            if (input < _range_tbl[idx] || input > _range_tbl[idx+8])
-                return 0;
-
-            --len;
-            ++data;
-            range3 >>= 8;
-        }
+        const int8_t *token = (const int8_t *)&token4;
+        int lookahead = 0;
+        if (token[3] > (int8_t)0xBF)
+            lookahead = 1;
+        else if (token[2] > (int8_t)0xBF)
+            lookahead = 2;
+        else if (token[1] > (int8_t)0xBF)
+            lookahead = 3;
+        data -= lookahead;
+        len += lookahead;
     }
 
     /* Check remaining bytes with naive method */
