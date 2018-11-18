@@ -1,38 +1,8 @@
-// Brand new utf8 validation algorithm
-
 #ifdef __aarch64__
 
 #include <stdio.h>
 #include <stdint.h>
 #include <arm_neon.h>
-
-/*
- * http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94
- *
- * Table 3-7. Well-Formed UTF-8 Byte Sequences
- *
- * +--------------------+------------+-------------+------------+-------------+
- * | Code Points        | First Byte | Second Byte | Third Byte | Fourth Byte |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+0000..U+007F     | 00..7F     |             |            |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+0080..U+07FF     | C2..DF     | 80..BF      |            |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+0800..U+0FFF     | E0         | A0..BF      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+1000..U+CFFF     | E1..EC     | 80..BF      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+D000..U+D7FF     | ED         | 80..9F      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+E000..U+FFFF     | EE..EF     | 80..BF      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+10000..U+3FFFF   | F0         | 90..BF      | 80..BF     | 80..BF      |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+40000..U+FFFFF   | F1..F3     | 80..BF      | 80..BF     | 80..BF      |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+100000..U+10FFFF | F4         | 80..8F      | 80..BF     | 80..BF      |
- * +--------------------+------------+-------------+------------+-------------+
- */
 
 int utf8_naive(const unsigned char *data, int len);
 
@@ -92,14 +62,14 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
 
     const uint8x16_t follow_bytes = get_followup_bytes(input, tables[0]);
     const uint8x16_t follow_mask = vcgtq_u8(follow_bytes, vdupq_n_u8(0));
-    uint8x16_t range, tmp;
+    uint8x16_t range;
 
     /* 2nd byte */
     /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
     range = vextq_u8(prev->follow_bytes, follow_bytes, 15);
 
     /* 3rd bytes */
-    uint8x16_t prev_follow_bytes;
+    uint8x16_t tmp, prev_follow_bytes;
     /* saturate sub 1 */
     tmp = vqsubq_u8(follow_bytes, vdupq_n_u8(1));
     prev_follow_bytes = vqsubq_u8(prev->follow_bytes, vdupq_n_u8(1));
@@ -129,16 +99,16 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
      * | F4         | 80..8F              | 7                 |
      * +------------+---------------------+-------------------+
      */
-    uint8x16_t pos;
-    /* tmp = (input, prev.input) << 1 byte */
-    tmp = vextq_u8(prev->input, input, 15);
-    pos = vceqq_u8(tmp, vdupq_n_u8(0xE0));
+    uint8x16_t shift1, pos;
+    /* shift1 = (input, prev.input) << 1 byte */
+    shift1 = vextq_u8(prev->input, input, 15);
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xE0));
     range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(2)));  /* 2+2 */
-    pos = vceqq_u8(tmp, vdupq_n_u8(0xED));
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xED));
     range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(3)));  /* 2+3 */
-    pos = vceqq_u8(tmp, vdupq_n_u8(0xF0));
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xF0));
     range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(3)));  /* 3+3 */
-    pos = vceqq_u8(tmp, vdupq_n_u8(0xF4));
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
     range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
 
     /* Check value range */

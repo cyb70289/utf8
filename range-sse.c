@@ -1,38 +1,8 @@
-// Brand new utf8 validation algorithm
-
 #ifdef __x86_64__
 
 #include <stdio.h>
 #include <stdint.h>
 #include <x86intrin.h>
-
-/*
- * http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94
- *
- * Table 3-7. Well-Formed UTF-8 Byte Sequences
- *
- * +--------------------+------------+-------------+------------+-------------+
- * | Code Points        | First Byte | Second Byte | Third Byte | Fourth Byte |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+0000..U+007F     | 00..7F     |             |            |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+0080..U+07FF     | C2..DF     | 80..BF      |            |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+0800..U+0FFF     | E0         | A0..BF      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+1000..U+CFFF     | E1..EC     | 80..BF      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+D000..U+D7FF     | ED         | 80..9F      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+E000..U+FFFF     | EE..EF     | 80..BF      | 80..BF     |             |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+10000..U+3FFFF   | F0         | 90..BF      | 80..BF     | 80..BF      |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+40000..U+FFFFF   | F1..F3     | 80..BF      | 80..BF     | 80..BF      |
- * +--------------------+------------+-------------+------------+-------------+
- * | U+100000..U+10FFFF | F4         | 80..8F      | 80..BF     | 80..BF      |
- * +--------------------+------------+-------------+------------+-------------+
- */
 
 int utf8_naive(const unsigned char *data, int len);
 
@@ -92,14 +62,14 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
 
     __m128i follow_bytes = get_followup_bytes(input, tables[0]);
     __m128i follow_mask = _mm_cmpgt_epi8(follow_bytes, _mm_set1_epi8(0));
-    __m128i range, tmp;
+    __m128i range;
 
     /* 2nd byte */
     /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
     range = _mm_alignr_epi8(follow_bytes, prev->follow_bytes, 15);
 
     /* 3rd bytes */
-    __m128i prev_follow_bytes;
+    __m128i tmp, prev_follow_bytes;
     /* saturate sub 1 */
     tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(1));
     prev_follow_bytes = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(1));
@@ -129,16 +99,16 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
      * | F4         | 80..8F              | 7                 |
      * +------------+---------------------+-------------------+
      */
-    __m128i pos;
-    /* tmp = (input, prev.input) << 1 byte */
-    tmp = _mm_alignr_epi8(input, prev->input, 15);
-    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xE0));
+    __m128i shift1, pos;
+    /* shift1 = (input, prev.input) << 1 byte */
+    shift1 = _mm_alignr_epi8(input, prev->input, 15);
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xE0));
     range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(2)));  /*2+2*/
-    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xED));
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xED));
     range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(3)));  /*2+3*/
-    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xF0));
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF0));
     range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(3)));  /*3+3*/
-    pos = _mm_cmpeq_epi8(tmp, _mm_set1_epi8(0xF4));
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF4));
     range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(4)));  /*3+4*/
 
     /* Check value range */
