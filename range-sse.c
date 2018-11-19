@@ -30,6 +30,13 @@ static const int8_t _follow_tbl[] = {
     3,                                  /* F0 ~ FF */
 };
 
+static const int8_t _follow_mask_tbl[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 ~ BF */
+    8, 8,                               /* C0 ~ DF */
+    8,                                  /* E0 ~ EF */
+    8,                                  /* F0 ~ FF */
+};
+
 static const int8_t _range_min_tbl[] = {
     /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
     0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2,
@@ -44,29 +51,24 @@ static const int8_t _range_max_tbl[] = {
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 };
 
-/* Get number of followup bytes to take care per high nibble */
-static inline __m128i get_followup_bytes(const __m128i input,
-        const __m128i follow_table)
-{
-    /* Why no _mm_srli_epi8 ? */
-    const __m128i high_nibbles =
-        _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
-
-    return _mm_shuffle_epi8(follow_table, high_nibbles);
-}
-
 static inline __m128i validate(const unsigned char *data, __m128i error,
        struct previous_input *prev, const __m128i tables[])
 {
     const __m128i input = _mm_lddqu_si128((const __m128i *)data);
 
-    __m128i follow_bytes = get_followup_bytes(input, tables[0]);
-    __m128i follow_mask = _mm_cmpgt_epi8(follow_bytes, _mm_set1_epi8(0));
-    __m128i range;
+    /* Why no _mm_srli_epi8 ? */
+    const __m128i high_nibbles =
+        _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
+
+    __m128i follow_bytes = _mm_shuffle_epi8(tables[0], high_nibbles);
+
+    /* range is 8 if input=0xC0~0xFF, overlap will lead to 9, 10, 11 */
+    __m128i range = _mm_shuffle_epi8(tables[1], high_nibbles);
 
     /* 2nd byte */
-    /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
-    range = _mm_alignr_epi8(follow_bytes, prev->follow_bytes, 15);
+    /* range |= (follow_bytes, prev.follow_bytes) << 1 byte */
+    range = _mm_or_si128(
+            range, _mm_alignr_epi8(follow_bytes, prev->follow_bytes, 15));
 
     /* 3rd bytes */
     __m128i tmp, prev_follow_bytes;
@@ -84,9 +86,6 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
     /* range |= (tmp, prev_follow_bytes) << 3 bytes */
     tmp = _mm_alignr_epi8(tmp, prev_follow_bytes, 13);
     range = _mm_or_si128(range, tmp);
-
-    /* Overlap will lead to 9, 10, 11 */
-    range = _mm_add_epi8(range, _mm_and_si128(follow_mask, _mm_set1_epi8(8)));
 
     /*
      * Check special cases (not 80..BF)
@@ -112,8 +111,8 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
     range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(4)));  /*3+4*/
 
     /* Check value range */
-    __m128i minv = _mm_shuffle_epi8(tables[1], range);
-    __m128i maxv = _mm_shuffle_epi8(tables[2], range);
+    __m128i minv = _mm_shuffle_epi8(tables[2], range);
+    __m128i maxv = _mm_shuffle_epi8(tables[3], range);
 
     /* error |= ((input < min) | (input > max)) */
     error = _mm_or_si128(error, _mm_cmplt_epi8(input, minv));
@@ -134,11 +133,12 @@ int utf8_range(const unsigned char *data, int len)
         previous_input.follow_bytes = _mm_set1_epi8(0);
 
         /* Cached constant tables */
-        __m128i tables[3];
+        __m128i tables[4];
 
         tables[0] = _mm_lddqu_si128((const __m128i *)_follow_tbl);
-        tables[1] = _mm_lddqu_si128((const __m128i *)_range_min_tbl);
-        tables[2] = _mm_lddqu_si128((const __m128i *)_range_max_tbl);
+        tables[1] = _mm_lddqu_si128((const __m128i *)_follow_mask_tbl);
+        tables[2] = _mm_lddqu_si128((const __m128i *)_range_min_tbl);
+        tables[3] = _mm_lddqu_si128((const __m128i *)_range_max_tbl);
 
         __m128i error = _mm_set1_epi8(0);
 

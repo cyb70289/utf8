@@ -32,6 +32,13 @@ static const uint8_t _follow_tbl[] = {
     3,                                  /* F0 ~ FF */
 };
 
+static const uint8_t _follow_mask_tbl[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 ~ BF */
+    8, 8,                               /* C0 ~ DF */
+    8,                                  /* E0 ~ EF */
+    8,                                  /* F0 ~ FF */
+};
+
 static const uint8_t _range_min_tbl[] = {
     /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
     0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2,
@@ -46,27 +53,20 @@ static const uint8_t _range_max_tbl[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-/* Get number of followup bytes to take care per high nibble */
-static inline uint8x16_t get_followup_bytes(const uint8x16_t input,
-        const uint8x16_t follow_table)
-{
-    const uint8x16_t high_nibbles = vshrq_n_u8(input, 4);
-
-    return vqtbl1q_u8(follow_table, high_nibbles);
-}
-
 static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
         struct previous_input *prev, const uint8x16_t tables[])
 {
     const uint8x16_t input = vld1q_u8(data);
 
-    const uint8x16_t follow_bytes = get_followup_bytes(input, tables[0]);
-    const uint8x16_t follow_mask = vcgtq_u8(follow_bytes, vdupq_n_u8(0));
-    uint8x16_t range;
+    const uint8x16_t high_nibbles = vshrq_n_u8(input, 4);
+    const uint8x16_t follow_bytes = vqtbl1q_u8(tables[0], high_nibbles);
+
+    /* range is 8 if input=0xC0~0xFF, overlap will lead to 9, 10, 11 */
+    uint8x16_t range = vqtbl1q_u8(tables[1], high_nibbles);
 
     /* 2nd byte */
-    /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
-    range = vextq_u8(prev->follow_bytes, follow_bytes, 15);
+    /* range |= (follow_bytes, prev.follow_bytes) << 1 byte */
+    range = vorrq_u8(range, vextq_u8(prev->follow_bytes, follow_bytes, 15));
 
     /* 3rd bytes */
     uint8x16_t tmp, prev_follow_bytes;
@@ -84,9 +84,6 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     /* range |= (tmp, prev_follow_bytes) << 3 bytes */
     tmp = vextq_u8(prev_follow_bytes, tmp, 13);
     range = vorrq_u8(range, tmp);
-
-    /* Overlap will lead to 9, 10, 11 */
-    range = vaddq_u8(range, vandq_u8(follow_mask, vdupq_n_u8(8)));
 
     /*
      * Check special cases (not 80..BF)
@@ -112,8 +109,8 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
 
     /* Check value range */
-    uint8x16_t minv = vqtbl1q_u8(tables[1], range);
-    uint8x16_t maxv = vqtbl1q_u8(tables[2], range);
+    uint8x16_t minv = vqtbl1q_u8(tables[2], range);
+    uint8x16_t maxv = vqtbl1q_u8(tables[3], range);
 
     /* errors |= ((input < min) | (input > max)) */
     error = vorrq_u8(error, vcltq_u8(input, minv));
@@ -134,11 +131,12 @@ int utf8_range(const unsigned char *data, int len)
         previous_input.follow_bytes = vdupq_n_u8(0);
 
         /* Cached constant tables */
-        uint8x16_t tables[3];
+        uint8x16_t tables[4];
 
         tables[0] = vld1q_u8(_follow_tbl);
-        tables[1] = vld1q_u8(_range_min_tbl);
-        tables[2] = vld1q_u8(_range_max_tbl);
+        tables[1] = vld1q_u8(_follow_mask_tbl);
+        tables[2] = vld1q_u8(_range_min_tbl);
+        tables[3] = vld1q_u8(_range_max_tbl);
 
         uint8x16_t error = vdupq_n_u8(0);
 
