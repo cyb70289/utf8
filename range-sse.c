@@ -98,17 +98,19 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
      * | F4         | 80..8F              | 7                 |
      * +------------+---------------------+-------------------+
      */
-    __m128i shift1, pos;
+    __m128i shift1, pos, _range;
     /* shift1 = (input, prev.input) << 1 byte */
     shift1 = _mm_alignr_epi8(input, prev->input, 15);
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xE0));
-    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(2)));  /*2+2*/
+    _range = _mm_and_si128(pos, _mm_set1_epi8(2));                      /*2+2*/
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xED));
-    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(3)));  /*2+3*/
+    _range = _mm_add_epi8(_range, _mm_and_si128(pos, _mm_set1_epi8(3)));/*2+3*/
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF0));
-    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(3)));  /*3+3*/
+    _range = _mm_add_epi8(_range, _mm_and_si128(pos, _mm_set1_epi8(3)));/*3+3*/
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF4));
-    range = _mm_add_epi8(range, _mm_and_si128(pos, _mm_set1_epi8(4)));  /*3+4*/
+    _range = _mm_add_epi8(_range, _mm_and_si128(pos, _mm_set1_epi8(4)));/*3+4*/
+
+    range = _mm_add_epi8(range, _range);
 
     /* Check value range */
     __m128i minv = _mm_shuffle_epi8(tables[2], range);
