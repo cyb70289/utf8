@@ -53,6 +53,16 @@ static const uint8_t _range_max_tbl[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+/* E0: 2, ED: 3 */
+static const uint8_t _e0_tbl[] = {
+    2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0,
+};
+
+/* F0: 3; F4: 4 */
+static const uint8_t _f0_tbl[] = {
+    3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
         struct previous_input *prev, const uint8x16_t tables[])
 {
@@ -90,23 +100,21 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
      * +------------+---------------------+-------------------+
      * | First Byte | Special Second Byte | range table index |
      * +------------+---------------------+-------------------+
-     * | E0         | A0..BF              | 4                 |
-     * | ED         | 80..9F              | 5                 |
-     * | F0         | 90..BF              | 6                 |
-     * | F4         | 80..8F              | 7                 |
+     * | E0         | A0..BF              | 4=2+2             |
+     * | ED         | 80..9F              | 5=2+3             |
+     * | F0         | 90..BF              | 6=3+3             |
+     * | F4         | 80..8F              | 7=3+4             |
      * +------------+---------------------+-------------------+
      */
     uint8x16_t shift1, pos;
     /* shift1 = (input, prev.input) << 1 byte */
     shift1 = vextq_u8(prev->input, input, 15);
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xE0));
-    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(2)));  /* 2+2 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xED));
-    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(3)));  /* 2+3 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF0));
-    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(3)));  /* 3+3 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
-    range = vaddq_u8(range, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
+    /* E0: +2; ED: +3 */
+    pos = vsubq_u8(shift1, vdupq_n_u8(0xE0));
+    range = vaddq_u8(range, vqtbl1q_u8(tables[4], pos));
+    /* F0: +3; F4: +4 */
+    pos = vsubq_u8(shift1, vdupq_n_u8(0xF0));
+    range = vaddq_u8(range, vqtbl1q_u8(tables[5], pos));
 
     /* Check value range */
     uint8x16_t minv = vqtbl1q_u8(tables[2], range);
@@ -131,12 +139,14 @@ int utf8_range(const unsigned char *data, int len)
         previous_input.follow_bytes = vdupq_n_u8(0);
 
         /* Cached constant tables */
-        uint8x16_t tables[4];
+        uint8x16_t tables[6];
 
         tables[0] = vld1q_u8(_follow_tbl);
         tables[1] = vld1q_u8(_follow_mask_tbl);
         tables[2] = vld1q_u8(_range_min_tbl);
         tables[3] = vld1q_u8(_range_max_tbl);
+        tables[4] = vld1q_u8(_e0_tbl);
+        tables[5] = vld1q_u8(_f0_tbl);
 
         uint8x16_t error = vdupq_n_u8(0);
 
