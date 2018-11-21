@@ -55,44 +55,33 @@ static inline __m128i get_followup_bytes(
 static inline __m128i validate(const unsigned char *data, __m128i error,
        struct previous_input *prev, const __m128i tables[])
 {
-    __m128i range1, range2;
+    __m128i range1;
 
     const __m128i input1 = _mm_lddqu_si128((const __m128i *)data);
-    const __m128i input2 = _mm_lddqu_si128((const __m128i *)(data+16));
 
     /* range is 8 if input=0xC0~0xFF, overlap will lead to 9, 10, 11 */
     __m128i follow_bytes1 =
         get_followup_bytes(input1, tables[0], &range1, tables[1]);
-    __m128i follow_bytes2 =
-        get_followup_bytes(input2, tables[0], &range2, tables[1]);
 
     /* 2nd byte */
     /* range = (follow_bytes, prev.follow_bytes) << 1 byte */
     range1 = _mm_or_si128(
             range1, _mm_alignr_epi8(follow_bytes1, prev->follow_bytes, 15));
-    range2 = _mm_or_si128(
-            range2, _mm_alignr_epi8(follow_bytes2, follow_bytes1, 15));
 
     /* 3rd bytes */
-    __m128i subp, sub1, sub2;
+    __m128i subp, sub1_3, sub1_4;
     /* saturate sub 1 */
     subp = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(1));
-    sub1 = _mm_subs_epu8(follow_bytes1, _mm_set1_epi8(1));
-    sub2 = _mm_subs_epu8(follow_bytes2, _mm_set1_epi8(1));
+    sub1_3 = _mm_subs_epu8(follow_bytes1, _mm_set1_epi8(1));
     /* range1 |= (sub1, subp) << 2 bytes */
-    range1 = _mm_or_si128(range1, _mm_alignr_epi8(sub1, subp, 14));
-    /* range2 |= (sub2, sub1) << 2 bytes */
-    range2 = _mm_or_si128(range2, _mm_alignr_epi8(sub2, sub1, 14));
+    range1 = _mm_or_si128(range1, _mm_alignr_epi8(sub1_3, subp, 14));
 
     /* 4th bytes */
     /* saturate sub 2 */
     subp = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(2));
-    sub1 = _mm_subs_epu8(follow_bytes1, _mm_set1_epi8(2));
-    sub2 = _mm_subs_epu8(follow_bytes2, _mm_set1_epi8(2));
+    sub1_4 = _mm_subs_epu8(follow_bytes1, _mm_set1_epi8(2));
     /* range1 |= (sub1, subp) << 3 bytes */
-    range1 = _mm_or_si128(range1, _mm_alignr_epi8(sub1, subp, 13));
-    /* range2 |= (sub2, sub1) << 3 bytes */
-    range2 = _mm_or_si128(range2, _mm_alignr_epi8(sub2, sub1, 13));
+    range1 = _mm_or_si128(range1, _mm_alignr_epi8(sub1_4, subp, 13));
 
     /*
      * Check special cases (not 80..BF)
@@ -105,41 +94,64 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
      * | F4         | 80..8F              | 7                 |
      * +------------+---------------------+-------------------+
      */
-    __m128i shift1, pos;
+    __m128i shift1, pos, _rang1;
 
     /* shift1 = (input1, prev.input) << 1 byte */
     shift1 = _mm_alignr_epi8(input1, prev->input, 15);
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xE0));
-    range1 = _mm_add_epi8(range1, _mm_and_si128(pos, _mm_set1_epi8(2)));/*2+2*/
+    _rang1 = _mm_and_si128(pos, _mm_set1_epi8(2));                      /*2+2*/
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xED));
-    range1 = _mm_add_epi8(range1, _mm_and_si128(pos, _mm_set1_epi8(3)));/*2+3*/
+    _rang1 = _mm_add_epi8(_rang1, _mm_and_si128(pos, _mm_set1_epi8(3)));/*2+3*/
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF0));
-    range1 = _mm_add_epi8(range1, _mm_and_si128(pos, _mm_set1_epi8(3)));/*3+3*/
+    _rang1 = _mm_add_epi8(_rang1, _mm_and_si128(pos, _mm_set1_epi8(3)));/*3+3*/
     pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF4));
-    range1 = _mm_add_epi8(range1, _mm_and_si128(pos, _mm_set1_epi8(4)));/*3+4*/
+    _rang1 = _mm_add_epi8(_rang1, _mm_and_si128(pos, _mm_set1_epi8(4)));/*3+4*/
 
-    /* shift1 = (input2, input1) << 1 byte */
-    shift1 = _mm_alignr_epi8(input2, input1, 15);
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xE0));
-    range2 = _mm_add_epi8(range2, _mm_and_si128(pos, _mm_set1_epi8(2)));/*2+2*/
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xED));
-    range2 = _mm_add_epi8(range2, _mm_and_si128(pos, _mm_set1_epi8(3)));/*2+3*/
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF0));
-    range2 = _mm_add_epi8(range2, _mm_and_si128(pos, _mm_set1_epi8(3)));/*3+3*/
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF4));
-    range2 = _mm_add_epi8(range2, _mm_and_si128(pos, _mm_set1_epi8(4)));/*3+4*/
+    range1 = _mm_add_epi8(range1, _rang1);
 
     /* Check value range */
-    __m128i minv1 = _mm_shuffle_epi8(tables[2], range1);
-    __m128i maxv1 = _mm_shuffle_epi8(tables[3], range1);
-    __m128i minv2 = _mm_shuffle_epi8(tables[2], range2);
-    __m128i maxv2 = _mm_shuffle_epi8(tables[3], range2);
+    __m128i minv = _mm_shuffle_epi8(tables[2], range1);
+    __m128i maxv = _mm_shuffle_epi8(tables[3], range1);
 
     /* error |= ((input < min) | (input > max)) */
-    error = _mm_or_si128(error, _mm_cmplt_epi8(input1, minv1));
-    error = _mm_or_si128(error, _mm_cmpgt_epi8(input1, maxv1));
-    error = _mm_or_si128(error, _mm_cmplt_epi8(input2, minv2));
-    error = _mm_or_si128(error, _mm_cmpgt_epi8(input2, maxv2));
+    error = _mm_or_si128(error, _mm_cmplt_epi8(input1, minv));
+    error = _mm_or_si128(error, _mm_cmpgt_epi8(input1, maxv));
+
+    /*===============================================================*/
+    __m128i range2, _rang2, sub2;
+
+    const __m128i input2 = _mm_lddqu_si128((const __m128i *)(data+16));
+
+    __m128i follow_bytes2 =
+        get_followup_bytes(input2, tables[0], &range2, tables[1]);
+
+    range2 = _mm_or_si128(
+            range2, _mm_alignr_epi8(follow_bytes2, follow_bytes1, 15));
+
+    sub2 = _mm_subs_epu8(follow_bytes2, _mm_set1_epi8(1));
+    range2 = _mm_or_si128(range2, _mm_alignr_epi8(sub2, sub1_3, 14));
+
+    sub2 = _mm_subs_epu8(follow_bytes2, _mm_set1_epi8(2));
+    range2 = _mm_or_si128(range2, _mm_alignr_epi8(sub2, sub1_4, 13));
+
+    shift1 = _mm_alignr_epi8(input2, input1, 15);
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xE0));
+    _rang2 = _mm_and_si128(pos, _mm_set1_epi8(2));
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xED));
+    _rang2 = _mm_add_epi8(_rang2, _mm_and_si128(pos, _mm_set1_epi8(3)));
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF0));
+    _rang2 = _mm_add_epi8(_rang2, _mm_and_si128(pos, _mm_set1_epi8(3)));
+    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF4));
+    _rang2 = _mm_add_epi8(_rang2, _mm_and_si128(pos, _mm_set1_epi8(4)));
+
+    range2 = _mm_add_epi8(range2, _rang2);
+
+    minv = _mm_shuffle_epi8(tables[2], range2);
+    maxv = _mm_shuffle_epi8(tables[3], range2);
+
+    error = _mm_or_si128(error, _mm_cmplt_epi8(input2, minv));
+    error = _mm_or_si128(error, _mm_cmpgt_epi8(input2, maxv));
+    /*===============================================================*/
 
     prev->input = input2;
     prev->follow_bytes = follow_bytes2;

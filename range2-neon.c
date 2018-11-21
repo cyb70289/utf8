@@ -53,42 +53,32 @@ static inline uint8x16_t get_followup_bytes(
 static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
         struct previous_input *prev, const uint8x16_t tables[])
 {
-    uint8x16_t range1, range2;
+    uint8x16_t range1;
 
     const uint8x16_t input1 = vld1q_u8(data);
-    const uint8x16_t input2 = vld1q_u8(data+16);
 
     /* range is 8 if input=0xC0~0xFF, overlap will lead to 9, 10, 11 */
     const uint8x16_t follow_bytes1 =
         get_followup_bytes(input1, tables[0], &range1, tables[1]);
-    const uint8x16_t follow_bytes2 =
-        get_followup_bytes(input2, tables[0], &range2, tables[1]);
 
     /* 2nd byte */
     /* range |= (follow_bytes, prev.follow_bytes) << 1 byte */
     range1 = vorrq_u8(range1, vextq_u8(prev->follow_bytes, follow_bytes1, 15));
-    range2 = vorrq_u8(range2, vextq_u8(follow_bytes1, follow_bytes2, 15));
 
     /* 3rd bytes */
-    uint8x16_t subp, sub1, sub2;
+    uint8x16_t subp, sub1_3, sub1_4;
     /* saturate sub 1 */
     subp = vqsubq_u8(prev->follow_bytes, vdupq_n_u8(1));
-    sub1 = vqsubq_u8(follow_bytes1, vdupq_n_u8(1));
-    sub2 = vqsubq_u8(follow_bytes2, vdupq_n_u8(1));
+    sub1_3 = vqsubq_u8(follow_bytes1, vdupq_n_u8(1));
     /* range1 |= (sub1, subp) << 2 bytes */
-    range1 = vorrq_u8(range1, vextq_u8(subp, sub1, 14));
-    /* range2 |= (sub2, sub1) << 2 bytes */
-    range2 = vorrq_u8(range2, vextq_u8(sub1, sub2, 14));
+    range1 = vorrq_u8(range1, vextq_u8(subp, sub1_3, 14));
 
     /* 4th bytes */
     /* saturate sub 2 */
     subp = vqsubq_u8(prev->follow_bytes, vdupq_n_u8(2));
-    sub1 = vqsubq_u8(follow_bytes1, vdupq_n_u8(2));
-    sub2 = vqsubq_u8(follow_bytes2, vdupq_n_u8(2));
+    sub1_4 = vqsubq_u8(follow_bytes1, vdupq_n_u8(2));
     /* range1 |= (sub1, subp) << 3 bytes */
-    range1 = vorrq_u8(range1, vextq_u8(subp, sub1, 13));
-    /* range2 |= (sub2, sub1) << 3 bytes */
-    range2 = vorrq_u8(range2, vextq_u8(sub1, sub2, 13));
+    range1 = vorrq_u8(range1, vextq_u8(subp, sub1_4, 13));
 
     /*
      * Check special cases (not 80..BF)
@@ -114,28 +104,46 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
     range1 = vaddq_u8(range1, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
 
-    /* shift1 = (input2, input1) << 1 byte */
-    shift1 = vextq_u8(input1, input2, 15);
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xE0));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(2)));  /* 2+2 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xED));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(3)));  /* 2+3 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF0));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(3)));  /* 3+3 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
-
     /* Check value range */
-    uint8x16_t minv1 = vqtbl1q_u8(tables[2], range1);
-    uint8x16_t maxv1 = vqtbl1q_u8(tables[3], range1);
-    uint8x16_t minv2 = vqtbl1q_u8(tables[2], range2);
-    uint8x16_t maxv2 = vqtbl1q_u8(tables[3], range2);
+    uint8x16_t minv = vqtbl1q_u8(tables[2], range1);
+    uint8x16_t maxv = vqtbl1q_u8(tables[3], range1);
 
     /* errors |= ((input < min) | (input > max)) */
-    error = vorrq_u8(error, vcltq_u8(input1, minv1));
-    error = vorrq_u8(error, vcgtq_u8(input1, maxv1));
-    error = vorrq_u8(error, vcltq_u8(input2, minv2));
-    error = vorrq_u8(error, vcgtq_u8(input2, maxv2));
+    error = vorrq_u8(error, vcltq_u8(input1, minv));
+    error = vorrq_u8(error, vcgtq_u8(input1, maxv));
+
+    /*===============================================================*/
+    uint8x16_t range2, sub2;
+
+    const uint8x16_t input2 = vld1q_u8(data+16);
+
+    const uint8x16_t follow_bytes2 =
+        get_followup_bytes(input2, tables[0], &range2, tables[1]);
+
+    range2 = vorrq_u8(range2, vextq_u8(follow_bytes1, follow_bytes2, 15));
+
+    sub2 = vqsubq_u8(follow_bytes2, vdupq_n_u8(1));
+    range2 = vorrq_u8(range2, vextq_u8(sub1_3, sub2, 14));
+
+    sub2 = vqsubq_u8(follow_bytes2, vdupq_n_u8(2));
+    range2 = vorrq_u8(range2, vextq_u8(sub1_4, sub2, 13));
+
+    shift1 = vextq_u8(input1, input2, 15);
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xE0));
+    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(2)));
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xED));
+    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(3)));
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xF0));
+    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(3)));
+    pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
+    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(4)));
+
+    minv = vqtbl1q_u8(tables[2], range2);
+    maxv = vqtbl1q_u8(tables[3], range2);
+
+    error = vorrq_u8(error, vcltq_u8(input2, minv));
+    error = vorrq_u8(error, vcgtq_u8(input2, maxv));
+    /*===============================================================*/
 
     prev->input = input2;
     prev->follow_bytes = follow_bytes2;
