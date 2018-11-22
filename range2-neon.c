@@ -39,6 +39,27 @@ static const uint8_t _range_max_tbl[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+/* uint8x16x2_t requires an interleaved table */
+static const uint8_t _minus_e0_tbl[] = {
+    /* index: 0~15, 16~31            */
+    /*  E0 -> */ 2,     3, /* <- F0  */
+                 0,     0,
+                 0,     0,
+                 0,     0,
+                 0,     4, /* <- F4  */
+                 0,     0,
+                 0,     0,
+                 0,     0,
+                 0,     0,
+                 0,     0,
+                 0,     0,
+                 0,     0,
+                 0,     0,
+    /*  ED -> */ 3,     0,
+                 0,     0,
+                 0,     0,
+};
+
 /* Get number of followup bytes to take care per high nibble */
 static inline uint8x16_t get_followup_bytes(
         const uint8x16_t input, const uint8x16_t follow_table,
@@ -51,7 +72,8 @@ static inline uint8x16_t get_followup_bytes(
 }
 
 static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
-        struct previous_input *prev, const uint8x16_t tables[])
+        struct previous_input *prev, const uint8x16_t tables[],
+        const uint8x16x2_t minus_e0)
 {
     uint8x16_t range1;
 
@@ -91,18 +113,11 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
      * | F4         | 80..8F              | 7                 |
      * +------------+---------------------+-------------------+
      */
-    uint8x16_t shift1, pos;
-
     /* shift1 = (input1, prev.input) << 1 byte */
-    shift1 = vextq_u8(prev->input, input1, 15);
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xE0));
-    range1 = vaddq_u8(range1, vandq_u8(pos, vdupq_n_u8(2)));  /* 2+2 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xED));
-    range1 = vaddq_u8(range1, vandq_u8(pos, vdupq_n_u8(3)));  /* 2+3 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF0));
-    range1 = vaddq_u8(range1, vandq_u8(pos, vdupq_n_u8(3)));  /* 3+3 */
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
-    range1 = vaddq_u8(range1, vandq_u8(pos, vdupq_n_u8(4)));  /* 3+4 */
+    uint8x16_t shift1 = vextq_u8(prev->input, input1, 15);
+    /* E0: +2    ED: +3    F0: +3    F4: +4 */
+    uint8x16_t pos = vsubq_u8(shift1, vdupq_n_u8(0xE0));
+    range1 = vaddq_u8(range1, vqtbl2q_u8(minus_e0, pos));
 
     /* Check value range */
     uint8x16_t minv = vqtbl1q_u8(tables[2], range1);
@@ -129,14 +144,8 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     range2 = vorrq_u8(range2, vextq_u8(sub1_4, sub2, 13));
 
     shift1 = vextq_u8(input1, input2, 15);
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xE0));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(2)));
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xED));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(3)));
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF0));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(3)));
-    pos = vceqq_u8(shift1, vdupq_n_u8(0xF4));
-    range2 = vaddq_u8(range2, vandq_u8(pos, vdupq_n_u8(4)));
+    pos = vsubq_u8(shift1, vdupq_n_u8(0xE0));
+    range2 = vaddq_u8(range2, vqtbl2q_u8(minus_e0, pos));
 
     minv = vqtbl1q_u8(tables[2], range2);
     maxv = vqtbl1q_u8(tables[3], range2);
@@ -167,10 +176,12 @@ int utf8_range2(const unsigned char *data, int len)
         tables[2] = vld1q_u8(_range_min_tbl);
         tables[3] = vld1q_u8(_range_max_tbl);
 
+        uint8x16x2_t minus_e0 = vld2q_u8(_minus_e0_tbl);
+
         uint8x16_t error = vdupq_n_u8(0);
 
         while (len >= 32) {
-            error = validate(data, error, &previous_input, tables);
+            error = validate(data, error, &previous_input, tables, minus_e0);
 
             data += 32;
             len -= 32;
