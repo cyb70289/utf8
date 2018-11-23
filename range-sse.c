@@ -52,13 +52,13 @@ static const int8_t _range_max_tbl[] = {
 };
 
 /* E0: 2, ED: 3 */
-static const uint8_t _e0_tbl[] = {
-    2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0,
+static const uint8_t _df_ee_tbl[] = {
+    0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0,
 };
 
 /* F0: 3; F4: 4 */
-static const uint8_t _f0_tbl[] = {
-    3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+static const uint8_t _ef_fe_tbl[] = {
+    0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
 static inline __m128i validate(const unsigned char *data, __m128i error,
@@ -111,15 +111,21 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
     __m128i shift1, pos, _range;
     /* shift1 = (input, prev.input) << 1 byte */
     shift1 = _mm_alignr_epi8(input, prev->input, 15);
+    /*
+     * shift1:  | EF  F0 ... FE | FF  00  ... ... ... ...  DE | DF  E0 ... EE |
+     * pos:     | 0   1      15 | 16  17                   239| 240 241    255|
+     * pos-240: | 0   0      0  | 0   0                    0  | 0   1      15 |
+     * pos+112: | 112 113    127|           >= 128            |     >= 128    |
+     */
+    pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xEF));
     /* E0: +2; ED: +3 */
-    pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xE0));
     /* 0~15 -> 112~127(bit[3:0]=0~15), others -> above 127(bit[7]=1) */
-    pos = _mm_adds_epu8(pos, _mm_set1_epi8(112));
-    _range = _mm_shuffle_epi8(tables[4], pos);
+    tmp = _mm_subs_epu8(pos, _mm_set1_epi8(240));
+    _range = _mm_shuffle_epi8(tables[4], tmp);
     /* F0: +3; F4: +4 */
-    pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xF0));
-    pos = _mm_adds_epu8(pos, _mm_set1_epi8(112));
-    _range = _mm_add_epi8(_range, _mm_shuffle_epi8(tables[5], pos));
+    /* 240~255 -> 0~15, others -> 0 */
+    tmp = _mm_adds_epu8(pos, _mm_set1_epi8(112));
+    _range = _mm_add_epi8(_range, _mm_shuffle_epi8(tables[5], tmp));
 
     range = _mm_add_epi8(range, _range);
 
@@ -152,8 +158,8 @@ int utf8_range(const unsigned char *data, int len)
         tables[1] = _mm_lddqu_si128((const __m128i *)_follow_mask_tbl);
         tables[2] = _mm_lddqu_si128((const __m128i *)_range_min_tbl);
         tables[3] = _mm_lddqu_si128((const __m128i *)_range_max_tbl);
-        tables[4] = _mm_lddqu_si128((const __m128i *)_e0_tbl);
-        tables[5] = _mm_lddqu_si128((const __m128i *)_f0_tbl);
+        tables[4] = _mm_lddqu_si128((const __m128i *)_df_ee_tbl);
+        tables[5] = _mm_lddqu_si128((const __m128i *)_ef_fe_tbl);
 
         __m128i error = _mm_set1_epi8(0);
 
