@@ -51,6 +51,16 @@ static const int8_t _range_max_tbl[] = {
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 };
 
+/* E0: 2, ED: 3 */
+static const uint8_t _e0_tbl[] = {
+    2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0,
+};
+
+/* F0: 3; F4: 4 */
+static const uint8_t _f0_tbl[] = {
+    3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 static inline __m128i validate(const unsigned char *data, __m128i error,
        struct previous_input *prev, const __m128i tables[])
 {
@@ -92,23 +102,24 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
      * +------------+---------------------+-------------------+
      * | First Byte | Special Second Byte | range table index |
      * +------------+---------------------+-------------------+
-     * | E0         | A0..BF              | 4                 |
-     * | ED         | 80..9F              | 5                 |
-     * | F0         | 90..BF              | 6                 |
-     * | F4         | 80..8F              | 7                 |
+     * | E0         | A0..BF              | 4=2+2             |
+     * | ED         | 80..9F              | 5=2+3             |
+     * | F0         | 90..BF              | 6=3+3             |
+     * | F4         | 80..8F              | 7=3+4             |
      * +------------+---------------------+-------------------+
      */
     __m128i shift1, pos, _range;
     /* shift1 = (input, prev.input) << 1 byte */
     shift1 = _mm_alignr_epi8(input, prev->input, 15);
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xE0));
-    _range = _mm_and_si128(pos, _mm_set1_epi8(2));                      /*2+2*/
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xED));
-    _range = _mm_add_epi8(_range, _mm_and_si128(pos, _mm_set1_epi8(3)));/*2+3*/
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF0));
-    _range = _mm_add_epi8(_range, _mm_and_si128(pos, _mm_set1_epi8(3)));/*3+3*/
-    pos = _mm_cmpeq_epi8(shift1, _mm_set1_epi8(0xF4));
-    _range = _mm_add_epi8(_range, _mm_and_si128(pos, _mm_set1_epi8(4)));/*3+4*/
+    /* E0: +2; ED: +3 */
+    pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xE0));
+    /* 0~15 -> 112~127(bit[3:0]=0~15), others -> above 127(bit[7]=1) */
+    pos = _mm_adds_epu8(pos, _mm_set1_epi8(112));
+    _range = _mm_shuffle_epi8(tables[4], pos);
+    /* F0: +3; F4: +4 */
+    pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xF0));
+    pos = _mm_adds_epu8(pos, _mm_set1_epi8(112));
+    _range = _mm_add_epi8(_range, _mm_shuffle_epi8(tables[5], pos));
 
     range = _mm_add_epi8(range, _range);
 
@@ -135,12 +146,14 @@ int utf8_range(const unsigned char *data, int len)
         previous_input.follow_bytes = _mm_set1_epi8(0);
 
         /* Cached constant tables */
-        __m128i tables[4];
+        __m128i tables[6];
 
         tables[0] = _mm_lddqu_si128((const __m128i *)_follow_tbl);
         tables[1] = _mm_lddqu_si128((const __m128i *)_follow_mask_tbl);
         tables[2] = _mm_lddqu_si128((const __m128i *)_range_min_tbl);
         tables[3] = _mm_lddqu_si128((const __m128i *)_range_max_tbl);
+        tables[4] = _mm_lddqu_si128((const __m128i *)_e0_tbl);
+        tables[5] = _mm_lddqu_si128((const __m128i *)_f0_tbl);
 
         __m128i error = _mm_set1_epi8(0);
 
