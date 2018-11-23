@@ -47,6 +47,26 @@ static struct ftab {
 #endif
 };
 
+static unsigned char *load_test_buf(int len)
+{
+    const char utf8[] = "\xF0\x90\xBF\x80";
+    const int utf8_len = sizeof(utf8)/sizeof(utf8[0]) - 1;
+
+    unsigned char *data = malloc(len);
+    unsigned char *p = data;
+
+    while (len >= utf8_len) {
+        memcpy(p, utf8, utf8_len);
+        p += utf8_len;
+        len -= utf8_len;
+    }
+
+    while (len--)
+        *p++ = 0x7F;
+
+    return data;
+}
+
 static unsigned char *load_test_file(int *len)
 {
     unsigned char *data;
@@ -278,17 +298,18 @@ static void bench(const unsigned char *data, int len, const struct ftab *ftab)
 static void usage(const char *bin)
 {
     printf("Usage:\n");
-    printf("%s test  [alg] ==> test all or one algorithm\n", bin);
-    printf("%s bench [alg] ==> benchmark all or one algorithm\n", bin);
-    printf("[alg] = ");
+    printf("%s test  [alg]      ==> test all or one algorithm\n", bin);
+    printf("%s bench [alg]      ==> benchmark all or one algorithm\n", bin);
+    printf("%s bench size NUM ==> benchmark with specific buffer size\n", bin);
+    printf("alg = ");
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i)
         printf("%s ", ftab[i].name);
-    printf("\n");
+    printf("\nNUM = buffer size in bytes, 1 ~ 67108864(64M)\n");
 }
 
 int main(int argc, char *argv[])
 {
-    int len;
+    int len = 0;
     unsigned char *data;
     const char *alg = NULL;
     void (*tb)(const unsigned char *data, int len, const struct ftab *ftab);
@@ -299,8 +320,21 @@ int main(int argc, char *argv[])
             tb = test;
         else if (strcmp(argv[1], "bench") == 0)
             tb = bench;
-        if (argc >= 3)
+        if (argc >= 3) {
             alg = argv[2];
+            if (strcmp(alg, "size") == 0) {
+                if (argc < 4) {
+                    tb = NULL;
+                } else {
+                    alg = NULL;
+                    len = atoi(argv[3]);
+                    if (len <= 0 || len > 67108864) {
+                        printf("Buffer size error!\n\n");
+                        tb = NULL;
+                    }
+                }
+            }
+        }
     }
 
     if (tb == NULL) {
@@ -309,10 +343,13 @@ int main(int argc, char *argv[])
     }
 
     /* Load UTF8 test buffer */
-    data = load_test_file(&len);
+    if (len)
+        data = load_test_buf(len);
+    else
+        data = load_test_file(&len);
 
     if (tb == bench)
-        printf("==================== Bench UTF8 ====================\n");
+        printf("=============== Bench UTF8 (%d bytes) ===============\n", len);
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
         if (alg && strcmp(alg, ftab[i].name) != 0)
             continue;
