@@ -1,6 +1,0 @@
-Fast UTF-8 string validation with SSE and NEON
-
-- naive.c:  naive utf-8 validation
-- lookup.c: Lookup-table from http://bjoern.hoehrmann.de/utf-8/decoder/dfa/
-- lemire.c: SIMD version from https://github.com/lemire/fastvalidate-utf-8
-- range.c:  new SIMD algorithm based on value range calculation
