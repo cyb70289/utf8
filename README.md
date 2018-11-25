@@ -14,6 +14,16 @@ Four UTF-8 validation methods are implemented and compared on both x86 and Arm p
 * naive.c: Naive UTF-8 validation byte by byte
 * lookup.c: [Lookup-table method](http://bjoern.hoehrmann.de/utf-8/decoder/dfa/)
 
+## About the code
+
+* Run "make" to build.
+* Run "./utf8" to see all command line options.
+* Benchmark
+  * Run "./utf8 bench" to bechmark all algorithms with [default test file](https://raw.githubusercontent.com/cyb70289/utf8/master/UTF-8-demo.txt).
+  * Run "./utf8 bench size NUM" to benchmark specified string size.
+* Run "./utf8 test" to test all algorithms with positive and negative test cases.
+* To benchmark or test specific algorithm, run something like "./utf8 bench range".
+
 ## Benchmark result
 
 #### Method
