@@ -189,23 +189,4 @@ int utf8_range(const unsigned char *data, int len)
     return utf8_naive(data, len);
 }
 
-#ifdef DEBUG
-int main(void)
-{
-    /* negative:
-     *
-     *  "\x00\x00\x00\x00\x00\xc2\x80\x00\x00\x00\xe1\x80\x80\x00\x00\xc2" \
-     *  "\xc2\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
-     *
-     *  "\x00\x00\x00\x00\x00\xc2\xc2\x80\x00\x00\xe1\x80\x80\x00\x00\x00";
-     */
-    const unsigned char src[] =
-        "\x00\x66\x7F\x00\x7F\x7F\x00\xC2\x80\xDF\xBF\xE0\xA0\x80\xE0\xA0\xBF";
-    int ret = utf8_range(src, sizeof(src)-1);
-    printf("%s\n", ret ? "ok": "bad");
-
-    return 0;
-}
-#endif
-
 #endif

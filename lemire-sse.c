@@ -25,7 +25,7 @@
  *
  */
 
-#ifdef DEBUG
+#if 0
 static void print128(const char *s, const __m128i *v128)
 {
   const unsigned char *v8 = (const unsigned char *)v128;
@@ -201,16 +201,5 @@ int utf8_lemire(const unsigned char *src, int len) {
 
   return _mm_testz_si128(has_error, has_error);
 }
-
-#ifdef DEBUG
-int main(void) {
-  const unsigned char src[] = "\x00\x00\x00\x00\xc2\x80\x00\x00\x00\xe1\x80\x80\x00\xf1\x80\x80" \
-                              "\x80\x00\x00\x00\x00\xc2\x80\x00\x00\x00\xe1\x80\x80\x00\x00\x00";
-  int ret = utf8_lemire(src, sizeof(src)-1);
-  printf("%s\n", ret ? "ok": "bad");
-
-  return 0;
-}
-#endif
 
 #endif

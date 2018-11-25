@@ -1,6 +1,4 @@
 utf8
-lemire-neon
-lemire-sse
-range
+utf8-boost
 *.o
 *.swp
