@@ -52,12 +52,12 @@ static const int8_t _range_max_tbl[] = {
 };
 
 /* E0: 2, ED: 3 */
-static const uint8_t _df_ee_tbl[] = {
+static const int8_t _df_ee_tbl[] = {
     0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0,
 };
 
 /* F0: 3; F4: 4 */
-static const uint8_t _ef_fe_tbl[] = {
+static const int8_t _ef_fe_tbl[] = {
     0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
@@ -80,7 +80,7 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
     range = _mm_or_si128(
             range, _mm_alignr_epi8(follow_bytes, prev->follow_bytes, 15));
 
-    /* 3rd bytes */
+    /* 3rd byte */
     __m128i tmp, prev_follow_bytes;
     /* saturate sub 1 */
     tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(1));
@@ -89,7 +89,7 @@ static inline __m128i validate(const unsigned char *data, __m128i error,
     tmp = _mm_alignr_epi8(tmp, prev_follow_bytes, 14);
     range = _mm_or_si128(range, tmp);
 
-    /* 4th bytes */
+    /* 4th byte */
     /* saturate sub 2 */
     tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(2));
     prev_follow_bytes = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(2));

@@ -16,7 +16,7 @@ Four UTF-8 validation methods are compared on both x86 and Arm platforms. Benchm
 
 ## About the code
 
-* Run "make" to build.
+* Run "make" to build. Built and tested with gcc-7.3.
 * Run "./utf8" to see all command line options.
 * Benchmark
   * Run "./utf8 bench" to bechmark all algorithms with [default test file](https://raw.githubusercontent.com/cyb70289/utf8/master/UTF-8-demo.txt).

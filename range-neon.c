@@ -90,7 +90,7 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     /* range |= (follow_bytes, prev.follow_bytes) << 1 byte */
     range = vorrq_u8(range, vextq_u8(prev->follow_bytes, follow_bytes, 15));
 
-    /* 3rd bytes */
+    /* 3rd byte */
     uint8x16_t tmp, prev_follow_bytes;
     /* saturate sub 1 */
     tmp = vqsubq_u8(follow_bytes, vdupq_n_u8(1));
@@ -99,7 +99,7 @@ static inline uint8x16_t validate(const unsigned char *data, uint8x16_t error,
     tmp = vextq_u8(prev_follow_bytes, tmp, 14);
     range = vorrq_u8(range, tmp);
 
-    /* 4th bytes */
+    /* 4th byte */
     /* saturate sub 2 */
     tmp = vqsubq_u8(follow_bytes, vdupq_n_u8(2));
     prev_follow_bytes = vqsubq_u8(prev->follow_bytes, vdupq_n_u8(2));
