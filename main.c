@@ -210,7 +210,8 @@ static int test_manual(const struct ftab *ftab)
     }
 
     /* Test shifted buffer to cover 1k length */
-    const int max_size = 1024+32;
+    /* buffer size must be greater than 1024 + 16 + max(test string length) */
+    const int max_size = 1024*2;
     uint64_t buf64[max_size/8 + 2];
     /* Offset 8 bytes by 1 byte */
     unsigned char *buf = ((unsigned char *)buf64) + 1;
