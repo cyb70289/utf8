@@ -1,4 +1,5 @@
 utf8
 utf8-boost
+ascii
 *.o
 *.swp
