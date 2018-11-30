@@ -18,32 +18,39 @@ static void print128(const char *s, const __m128i v128)
 }
 #endif
 
-struct previous_input {
-    __m128i input;
-    __m128i follow_bytes;
+/*
+ * Map high nibble of "First Byte" to legal character length minus 1
+ * 0x00 ~ 0xBF --> 0
+ * 0xC0 ~ 0xDF --> 1
+ * 0xE0 ~ 0xEF --> 2
+ * 0xF0 ~ 0xFF --> 3
+ */
+static const int8_t _first_len_tbl[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3,
 };
 
-static const int8_t _follow_tbl[] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 ~ BF */
-    1, 1,                               /* C0 ~ DF */
-    2,                                  /* E0 ~ EF */
-    3,                                  /* F0 ~ FF */
+/* Map "First Byte" to 8-th item of range table (0xC2 ~ 0xF4) */
+static const int8_t _first_range_tbl[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8,
 };
 
-static const int8_t _follow_mask_tbl[] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 ~ BF */
-    8, 8,                               /* C0 ~ DF */
-    8,                                  /* E0 ~ EF */
-    8,                                  /* F0 ~ FF */
-};
-
+/*
+ * Range table, map range index to min and max values
+ * Index 0    : 00 ~ 7F (First Byte, ascii)
+ * Index 1,2,3: 80 ~ BF (Second, Third, Fourth Byte)
+ * Index 4    : A0 ~ BF (Second Byte after E0)
+ * Index 5    : 80 ~ 9F (Second Byte after ED)
+ * Index 6    : 90 ~ BF (Second Byte after F0)
+ * Index 7    : 80 ~ 8F (Second Byte after F4)
+ * Index 8    : C2 ~ F4 (First Byte, non ascii)
+ * Index 9~15 : illegal: i >= 127 && i <= -128
+ */
 static const int8_t _range_min_tbl[] = {
     /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
     0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2,
     /* Must be invalid */
     0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F,
 };
-
 static const int8_t _range_max_tbl[] = {
     /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
     0x7F, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F, 0xF4,
@@ -51,126 +58,140 @@ static const int8_t _range_max_tbl[] = {
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 };
 
-/* E0: 2, ED: 3 */
+/*
+ * Tables for fast handling of four special First Bytes(E0,ED,F0,F4), after
+ * which the Second Byte are not 80~BF. It contains "range index adjustment".
+ * +------------+---------------+------------------+----------------+
+ * | First Byte | original range| range adjustment | adjusted range |
+ * +------------+---------------+------------------+----------------+
+ * | E0         | 2             | 2                | 4              |
+ * +------------+---------------+------------------+----------------+
+ * | ED         | 2             | 3                | 5              |
+ * +------------+---------------+------------------+----------------+
+ * | F0         | 3             | 3                | 6              |
+ * +------------+---------------+------------------+----------------+
+ * | F4         | 4             | 4                | 8              |
+ * +------------+---------------+------------------+----------------+
+ */
+/* index1 -> E0, index14 -> ED */
 static const int8_t _df_ee_tbl[] = {
     0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0,
 };
-
-/* F0: 3; F4: 4 */
+/* index1 -> F0, index5 -> F4 */
 static const int8_t _ef_fe_tbl[] = {
     0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
-static inline __m128i validate(const unsigned char *data, __m128i error,
-       struct previous_input *prev, const __m128i tables[])
-{
-    const __m128i input = _mm_lddqu_si128((const __m128i *)data);
-
-    /* Why no _mm_srli_epi8 ? */
-    const __m128i high_nibbles =
-        _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
-
-    __m128i follow_bytes = _mm_shuffle_epi8(tables[0], high_nibbles);
-
-    /* range is 8 if input=0xC0~0xFF, overlap will lead to 9, 10, 11 */
-    __m128i range = _mm_shuffle_epi8(tables[1], high_nibbles);
-
-    /* 2nd byte */
-    /* range |= (follow_bytes, prev.follow_bytes) << 1 byte */
-    range = _mm_or_si128(
-            range, _mm_alignr_epi8(follow_bytes, prev->follow_bytes, 15));
-
-    /* 3rd byte */
-    __m128i tmp, prev_follow_bytes;
-    /* saturate sub 1 */
-    tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(1));
-    prev_follow_bytes = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(1));
-    /* range |= (tmp, prev_follow_bytes) << 2 bytes */
-    tmp = _mm_alignr_epi8(tmp, prev_follow_bytes, 14);
-    range = _mm_or_si128(range, tmp);
-
-    /* 4th byte */
-    /* saturate sub 2 */
-    tmp = _mm_subs_epu8(follow_bytes, _mm_set1_epi8(2));
-    prev_follow_bytes = _mm_subs_epu8(prev->follow_bytes, _mm_set1_epi8(2));
-    /* range |= (tmp, prev_follow_bytes) << 3 bytes */
-    tmp = _mm_alignr_epi8(tmp, prev_follow_bytes, 13);
-    range = _mm_or_si128(range, tmp);
-
-    /*
-     * Check special cases (not 80..BF)
-     * +------------+---------------------+-------------------+
-     * | First Byte | Special Second Byte | range table index |
-     * +------------+---------------------+-------------------+
-     * | E0         | A0..BF              | 4=2+2             |
-     * | ED         | 80..9F              | 5=2+3             |
-     * | F0         | 90..BF              | 6=3+3             |
-     * | F4         | 80..8F              | 7=3+4             |
-     * +------------+---------------------+-------------------+
-     */
-    __m128i shift1, pos, _range;
-    /* shift1 = (input, prev.input) << 1 byte */
-    shift1 = _mm_alignr_epi8(input, prev->input, 15);
-    /*
-     * shift1:  | EF  F0 ... FE | FF  00  ... ... ... ...  DE | DF  E0 ... EE |
-     * pos:     | 0   1      15 | 16  17                   239| 240 241    255|
-     * pos-240: | 0   0      0  | 0   0                    0  | 0   1      15 |
-     * pos+112: | 112 113    127|           >= 128            |     >= 128    |
-     */
-    pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xEF));
-    /* E0: +2; ED: +3 */
-    /* 0~15 -> 112~127(bit[3:0]=0~15), others -> above 127(bit[7]=1) */
-    tmp = _mm_subs_epu8(pos, _mm_set1_epi8(240));
-    _range = _mm_shuffle_epi8(tables[4], tmp);
-    /* F0: +3; F4: +4 */
-    /* 240~255 -> 0~15, others -> 0 */
-    tmp = _mm_adds_epu8(pos, _mm_set1_epi8(112));
-    _range = _mm_add_epi8(_range, _mm_shuffle_epi8(tables[5], tmp));
-
-    range = _mm_add_epi8(range, _range);
-
-    /* Check value range */
-    __m128i minv = _mm_shuffle_epi8(tables[2], range);
-    __m128i maxv = _mm_shuffle_epi8(tables[3], range);
-
-    /* error |= ((input < min) | (input > max)) */
-    error = _mm_or_si128(error, _mm_cmplt_epi8(input, minv));
-    error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
-
-    prev->input = input;
-    prev->follow_bytes = follow_bytes;
-
-    return error;
-}
-
+/* 5x faster than naive method */
 int utf8_range(const unsigned char *data, int len)
 {
     if (len >= 16) {
-        struct previous_input previous_input;
+        __m128i prev_input = _mm_set1_epi8(0);
+        __m128i prev_first_len = _mm_set1_epi8(0);
 
-        previous_input.input = _mm_set1_epi8(0);
-        previous_input.follow_bytes = _mm_set1_epi8(0);
-
-        /* Cached constant tables */
-        __m128i tables[6];
-
-        tables[0] = _mm_lddqu_si128((const __m128i *)_follow_tbl);
-        tables[1] = _mm_lddqu_si128((const __m128i *)_follow_mask_tbl);
-        tables[2] = _mm_lddqu_si128((const __m128i *)_range_min_tbl);
-        tables[3] = _mm_lddqu_si128((const __m128i *)_range_max_tbl);
-        tables[4] = _mm_lddqu_si128((const __m128i *)_df_ee_tbl);
-        tables[5] = _mm_lddqu_si128((const __m128i *)_ef_fe_tbl);
+        /* Cached tables */
+        const __m128i first_len_tbl =
+            _mm_lddqu_si128((const __m128i *)_first_len_tbl);
+        const __m128i first_range_tbl =
+            _mm_lddqu_si128((const __m128i *)_first_range_tbl);
+        const __m128i range_min_tbl =
+            _mm_lddqu_si128((const __m128i *)_range_min_tbl);
+        const __m128i range_max_tbl =
+            _mm_lddqu_si128((const __m128i *)_range_max_tbl);
+        const __m128i df_ee_tbl =
+            _mm_lddqu_si128((const __m128i *)_df_ee_tbl);
+        const __m128i ef_fe_tbl =
+            _mm_lddqu_si128((const __m128i *)_ef_fe_tbl);
 
         __m128i error = _mm_set1_epi8(0);
 
         while (len >= 16) {
-            error = validate(data, error, &previous_input, tables);
+            const __m128i input = _mm_lddqu_si128((const __m128i *)data);
+
+            const __m128i high_nibbles =
+                _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
+
+            /* first_len = legal character length minus 1 */
+            /* 0 for 00~7F, 1 for C0~DF, 2 for E0~EF, 3 for F0~FF */
+            __m128i first_len = _mm_shuffle_epi8(first_len_tbl, high_nibbles);
+
+            /* First Byte: set range index to 8 for bytes within 0xC0 ~ 0xFF */
+            /* range = first_range_tbl[high_nibbles] */
+            __m128i range = _mm_shuffle_epi8(first_range_tbl, high_nibbles);
+
+            /* Second Byte: set range index to first_len */
+            /* 0 for 00~7F, 1 for C0~DF, 2 for E0~EF, 3 for F0~FF */
+            /* range |= (first_len, prev_first_len) << 1 byte */
+            range = _mm_or_si128(
+                    range, _mm_alignr_epi8(first_len, prev_first_len, 15));
+
+            /* Third Byte: set range index to saturate_sub(first_len, 1) */
+            /* 0 for 00~7F, 0 for C0~DF, 1 for E0~EF, 2 for F0~FF */
+            __m128i tmp1, tmp2;
+            /* tmp1 = saturate_sub(first_len, 1) */
+            tmp1 = _mm_subs_epu8(first_len, _mm_set1_epi8(1));
+            /* tmp2 = saturate_sub(prev_first_len, 1) */
+            tmp2 = _mm_subs_epu8(prev_first_len, _mm_set1_epi8(1));
+            /* range |= (tmp1, tmp2) << 2 bytes */
+            range = _mm_or_si128(range, _mm_alignr_epi8(tmp1, tmp2, 14));
+
+            /* Fourth Byte: set range index to saturate_sub(first_len, 2) */
+            /* 0 for 00~7F, 0 for C0~DF, 0 for E0~EF, 1 for F0~FF */
+            /* tmp1 = saturate_sub(first_len, 2) */
+            tmp1 = _mm_subs_epu8(first_len, _mm_set1_epi8(2));
+            /* tmp2 = saturate_sub(prev_first_len, 2) */
+            tmp2 = _mm_subs_epu8(prev_first_len, _mm_set1_epi8(2));
+            /* range |= (tmp1, tmp2) << 3 bytes */
+            range = _mm_or_si128(range, _mm_alignr_epi8(tmp1, tmp2, 13));
+
+            /*
+             * Now we have below range indices caluclated
+             * Correct cases:
+             * - 8 for C0~FF
+             * - 3 for 1st byte after F0~FF
+             * - 2 for 1st byte after E0~EF or 2nd byte after F0~FF
+             * - 1 for 1st byte after C0~DF or 2nd byte after E0~EF or
+             *         3rd byte after F0~FF
+             * - 0 for others
+             * Error cases:
+             *   9,10,11 if non ascii First Byte overlaps
+             *   E.g., F1 80 C2 90 --> 8 3 10 2, where 10 indicates error
+             */
+
+            /* Adjust Second Byte range for special First Bytes(E0,ED,F0,F4) */
+            /* Overlaps lead to index 9~15, which are illegal in range table */
+            __m128i shift1, pos, range2;
+            /* shift1 = (input, prev_input) << 1 byte */
+            shift1 = _mm_alignr_epi8(input, prev_input, 15);
+            pos = _mm_sub_epi8(shift1, _mm_set1_epi8(0xEF));
+            /*
+             * shift1:  | EF  F0 ... FE | FF  00  ... ...  DE | DF  E0 ... EE |
+             * pos:     | 0   1      15 | 16  17           239| 240 241    255|
+             * pos-240: | 0   0      0  | 0   0            0  | 0   1      15 |
+             * pos+112: | 112 113    127|       >= 128        |     >= 128    |
+             */
+            tmp1 = _mm_subs_epu8(pos, _mm_set1_epi8(240));
+            range2 = _mm_shuffle_epi8(df_ee_tbl, tmp1);
+            tmp2 = _mm_adds_epu8(pos, _mm_set1_epi8(112));
+            range2 = _mm_add_epi8(range2, _mm_shuffle_epi8(ef_fe_tbl, tmp2));
+
+            range = _mm_add_epi8(range, range2);
+
+            /* Load min and max values per calculated range index */
+            __m128i minv = _mm_shuffle_epi8(range_min_tbl, range);
+            __m128i maxv = _mm_shuffle_epi8(range_max_tbl, range);
+
+            /* Check value range */
+            error = _mm_or_si128(error, _mm_cmplt_epi8(input, minv));
+            error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
+
+            prev_input = input;
+            prev_first_len = first_len;
 
             data += 16;
             len -= 16;
         }
 
-        /* Delay error check till loop ends */
         /* Reduce error vector, error_reduced = 0xFFFF if error == 0 */
         int error_reduced =
             _mm_movemask_epi8(_mm_cmpeq_epi8(error, _mm_set1_epi8(0)));
@@ -178,8 +199,7 @@ int utf8_range(const unsigned char *data, int len)
             return 0;
 
         /* Find previous token (not 80~BF) */
-        int32_t token4 = _mm_extract_epi32(previous_input.input, 3);
-
+        int32_t token4 = _mm_extract_epi32(prev_input, 3);
         const int8_t *token = (const int8_t *)&token4;
         int lookahead = 0;
         if (token[3] > (int8_t)0xBF)
@@ -188,6 +208,7 @@ int utf8_range(const unsigned char *data, int len)
             lookahead = 2;
         else if (token[1] > (int8_t)0xBF)
             lookahead = 3;
+
         data -= lookahead;
         len += lookahead;
     }
