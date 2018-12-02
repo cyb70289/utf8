@@ -46,16 +46,12 @@ static const int8_t _first_range_tbl[] = {
  * Index 9~15 : illegal: i >= 127 && i <= -128
  */
 static const int8_t _range_min_tbl[] = {
-    /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
-    0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80, 0xC2,
-    /* Must be invalid */
-    0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F,
+    0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80,
+    0xC2, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F,
 };
 static const int8_t _range_max_tbl[] = {
-    /* 0,    1,    2,    3,    4,    5,    6,    7,    8 */
-    0x7F, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F, 0xF4,
-    /* Must be invalid */
-    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+    0x7F, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F,
+    0xF4, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 };
 
 /*
@@ -108,11 +104,13 @@ int utf8_range(const unsigned char *data, int len)
         while (len >= 16) {
             const __m128i input = _mm_lddqu_si128((const __m128i *)data);
 
+            /* high_nibbles = input >> 4 */
             const __m128i high_nibbles =
                 _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
 
             /* first_len = legal character length minus 1 */
             /* 0 for 00~7F, 1 for C0~DF, 2 for E0~EF, 3 for F0~FF */
+            /* first_len = first_len_tbl[high_nibbles] */
             __m128i first_len = _mm_shuffle_epi8(first_len_tbl, high_nibbles);
 
             /* First Byte: set range index to 8 for bytes within 0xC0 ~ 0xFF */

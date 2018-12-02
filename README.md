@@ -1,4 +1,4 @@
-# Fast UTF-8 validation with range based algorithm
+# Fast UTF-8 validation with Range algorithm (NEON+SSE4)
 
 This is a brand new algorithm to leverage SIMD for fast UTF-8 string validation. Both **NEON**(armv8a) and **SSE4** versions are implemented.
 
@@ -58,5 +58,9 @@ test case | naive | lookup | lemire | range | range2
 ## Range algorithm analysis
 
 Basically, range algorithm reads 16 bytes and figures out value range for each byte efficiently, then validate them at once.
+
+### Example (NEON)
+
+Below table shows how 16 bytes input are processed step by step.
 
 ![Range based UTF-8 validation algorithm](https://raw.githubusercontent.com/cyb70289/utf8/master/range.png)

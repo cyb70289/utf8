@@ -45,7 +45,7 @@ static const uint8_t _first_range_tbl[] = {
  * Index 6    : 90 ~ BF (Second Byte after F0)
  * Index 7    : 80 ~ 8F (Second Byte after F4)
  * Index 8    : C2 ~ F4 (First Byte, non ascii)
- * Index 9~15 : illegal: u >= 255 && i <= 0
+ * Index 9~15 : illegal: u >= 255 && u <= 0
  */
 static const uint8_t _range_min_tbl[] = {
     0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80,
@@ -120,10 +120,13 @@ int utf8_range(const unsigned char *data, int len)
 
         while (len >= 16) {
             const uint8x16_t input = vld1q_u8(data);
+
+            /* high_nibbles = input >> 4 */
             const uint8x16_t high_nibbles = vshrq_n_u8(input, 4);
 
             /* first_len = legal character length minus 1 */
             /* 0 for 00~7F, 1 for C0~DF, 2 for E0~EF, 3 for F0~FF */
+            /* first_len = first_len_tbl[high_nibbles] */
             const uint8x16_t first_len =
                 vqtbl1q_u8(first_len_tbl, high_nibbles);
 
