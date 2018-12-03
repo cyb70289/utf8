@@ -43,6 +43,72 @@ static inline int ascii_u64(const uint8_t *data, int len)
     return orall < 0x80;
 }
 
+#if defined(__x86_64__)
+#include <x86intrin.h>
+
+static inline int ascii_simd(const uint8_t *data, int len)
+{
+    if (len >= 32) {
+        const uint8_t *data1 = data, *data2 = data+16;
+
+        __m128i or1 = _mm_set1_epi8(0), or2 = or1;
+
+        while (len >= 32) {
+            __m128i input1 = _mm_lddqu_si128((const __m128i *)data1);
+            __m128i input2 = _mm_lddqu_si128((const __m128i *)data2);
+
+            or1 = _mm_or_si128(or1, input1);
+            or2 = _mm_or_si128(or2, input2);
+
+            data1 += 32;
+            data2 += 32;
+            len -= 32;
+        }
+
+        or1 = _mm_or_si128(or1, or2);
+        if (_mm_movemask_epi8(_mm_cmplt_epi8(or1, _mm_set1_epi8(0))))
+            return 0;
+
+        data = data1;
+    }
+
+    return ascii_u64(data, len);
+}
+
+#elif defined(__aarch64__)
+#include <arm_neon.h>
+
+static inline int ascii_simd(const uint8_t *data, int len)
+{
+    if (len >= 32) {
+        const uint8_t *data1 = data, *data2 = data+16;
+
+        uint8x16_t or1 = vdupq_n_u8(0), or2 = or1;
+
+        while (len >= 32) {
+            const uint8x16_t input1 = vld1q_u8(data1);
+            const uint8x16_t input2 = vld1q_u8(data2);
+
+            or1 = vorrq_u8(or1, input1);
+            or2 = vorrq_u8(or2, input2);
+
+            data1 += 32;
+            data2 += 32;
+            len -= 32;
+        }
+
+        or1 = vorrq_u8(or1, or2);
+        if (vmaxvq_u8(or1) >= 0x80)
+            return 0;
+
+        data = data1;
+    }
+
+    return ascii_u64(data, len);
+}
+
+#endif
+
 struct ftab {
     const char *name;
     int (*func)(const uint8_t *data, int len);
@@ -55,6 +121,9 @@ static const std::vector<ftab> _f = {
     }, {
         .name = "u64",
         .func = ascii_u64,
+    }, {
+        .name = "simd",
+        .func = ascii_simd,
     },
 };
 
