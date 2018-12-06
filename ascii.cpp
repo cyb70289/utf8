@@ -178,10 +178,12 @@ static void test(const struct ftab &f, uint8_t *data, int len)
     error |= !f.func(data, len);
 
     /* negative */
-    for (int i = 0; i < len; ++i) {
-        data[i] += 0x80;
-        error |= f.func(data, len);
-        data[i] -= 0x80;
+    if (len < 100*1024) {
+        for (int i = 0; i < len; ++i) {
+            data[i] += 0x80;
+            error |= f.func(data, len);
+            data[i] -= 0x80;
+        }
     }
 
     printf("%s\n", error ? "FAIL" : "pass");
@@ -202,7 +204,7 @@ int main(int argc, const char *argv[])
         alg = argv[2];
 
     const std::vector<int> size = { 9, 16+1, 32-1, 128+1, 1024+15,
-                                    16*1024+1, 64*1024+15 };
+                                    16*1024+1, 64*1024+15, 1024*1024 };
 
     int max_size = *std::max_element(size.begin(), size.end());
     uint8_t *_data = new uint8_t[max_size+1];
