@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <cassert>
 #include <vector>
 #include <algorithm>
 
@@ -140,20 +141,31 @@ static void bench(const struct ftab &f, const uint8_t *data, int len)
 {
     const int loops = 1024*1024*1024/len;
     int ret = 1;
-    double time, size;
+    double time_aligned, time_unaligned, size;
     struct timeval tv1, tv2;
 
     fprintf(stderr, "bench %s (%d bytes)... ", f.name, len);
+
+    /* aligned */
     gettimeofday(&tv1, 0);
     for (int i = 0; i < loops; ++i)
         ret &= f.func(data, len);
     gettimeofday(&tv2, 0);
+    time_aligned = tv2.tv_usec - tv1.tv_usec;
+    time_aligned = time_aligned / 1000000 + tv2.tv_sec - tv1.tv_sec;
+
+    /* unaligned */
+    gettimeofday(&tv1, 0);
+    for (int i = 0; i < loops; ++i)
+        ret &= f.func(data+1, len);
+    gettimeofday(&tv2, 0);
+    time_unaligned = tv2.tv_usec - tv1.tv_usec;
+    time_unaligned = time_unaligned / 1000000 + tv2.tv_sec - tv1.tv_sec;
+
     printf("%s ", ret?"pass":"FAIL");
 
-    time = tv2.tv_usec - tv1.tv_usec;
-    time = time / 1000000 + tv2.tv_sec - tv1.tv_sec;
     size = ((double)len * loops) / (1024*1024);
-    printf("%.2f MB/s\n", size / time);
+    printf("%.0f/%.0f MB/s\n", size / time_aligned, size / time_unaligned);
 }
 
 static void test(const struct ftab &f, uint8_t *data, int len)
@@ -194,8 +206,10 @@ int main(int argc, const char *argv[])
 
     int max_size = *std::max_element(size.begin(), size.end());
     uint8_t *_data = new uint8_t[max_size+1];
+    assert(((uintptr_t)_data & 7) == 0);
     uint8_t *data = _data+1;    /* Unalign buffer address */
 
+    _data[0] = 0;
     load_test_buf(data, max_size);
 
     if (do_test) {
@@ -212,7 +226,7 @@ int main(int argc, const char *argv[])
         for (int sz : size) {
             for (auto &f : _f) {
                 if (!alg || strcmp(alg, f.name) == 0)
-                    bench(f, data, sz);
+                    bench(f, _data, sz);
             }
             printf("-----------------------------------------------\n");
         }
