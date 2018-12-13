@@ -17,28 +17,24 @@ static inline int ascii_u64(const uint8_t *data, int len)
     uint8_t orall = 0;
 
     if (len >= 16) {
-        union {
-            uint64_t u64;
-            uint32_t u32[2];
-            uint16_t u16[4];
-            uint8_t u8[8];
-        } orr;
 
         uint64_t or1 = 0, or2 = 0;
         const uint8_t *data2 = data+8;
 
-        while (len >= 16) {
+        do {
             or1 |= *(const uint64_t *)data;
             or2 |= *(const uint64_t *)data2;
             data += 16;
             data2 += 16;
             len -= 16;
-        }
+        } while (len >= 16);
 
-        orr.u64 = or1 | or2;
-        orr.u32[0] |= orr.u32[1];
-        orr.u16[0] |= orr.u16[1];
-        orall = orr.u8[0] | orr.u8[1];
+        /*
+         * Idea from Benny Halevy <bhalevy@scylladb.com>
+         * - 7-th bit set   ==> orall = !(non-zero) - 1 = 0 - 1 = 0xFF
+         * - 7-th bit clear ==> orall = !0 - 1          = 1 - 1 = 0x00
+         */
+        orall = !((or1 | or2) & 0x8080808080808080ULL) - 1;
     }
 
     while (len--)
