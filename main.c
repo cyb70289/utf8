@@ -8,43 +8,20 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-int utf8_naive(const unsigned char *data, int len);
-int utf8_lookup(const unsigned char *data, int len);
-int utf8_boost(const unsigned char *data, int len);
-int utf8_lemire(const unsigned char *data, int len);
 int utf8_range(const unsigned char *data, int len);
-int utf8_range2(const unsigned char *data, int len);
+int utf8_range_asm(const unsigned char *data, int len);
 
 static struct ftab {
     const char *name;
     int (*func)(const unsigned char *data, int len);
 } ftab[] = {
     {
-        .name = "naive",
-        .func = utf8_naive,
-    },
-    {
-        .name = "lookup",
-        .func = utf8_lookup,
-    },
-    {
-        .name = "lemire",
-        .func = utf8_lemire,
-    },
-    {
+        .name = "range-asm",
+        .func = utf8_range_asm,
+    }, {
         .name = "range",
         .func = utf8_range,
     },
-    {
-        .name = "range2",
-        .func = utf8_range2,
-    },
-#ifdef BOOST
-    {
-        .name = "boost",
-        .func = utf8_boost,
-    },
-#endif
 };
 
 static unsigned char *load_test_buf(int len)
@@ -282,6 +259,11 @@ static void bench(const unsigned char *data, int len, const struct ftab *ftab)
     struct timeval tv1, tv2;
 
     fprintf(stderr, "bench %s... ", ftab->name);
+
+    /* warm up */
+    for (int i = 0; i < loops/10; ++i)
+        ret &= ftab->func(data, len);
+
     gettimeofday(&tv1, 0);
     for (int i = 0; i < loops; ++i)
         ret &= ftab->func(data, len);

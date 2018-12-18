@@ -6,8 +6,8 @@
 
 int utf8_naive(const unsigned char *data, int len);
 
-#if 0
-static void print128(const char *s, const uint8x16_t v128)
+#if 1
+void print128(const char *s, const uint8x16_t v128)
 {
     unsigned char v8[16];
     vst1q_u8(v8, v128);
