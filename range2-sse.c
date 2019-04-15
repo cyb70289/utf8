@@ -34,6 +34,7 @@ static const int8_t _ef_fe_tbl[] = {
     0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
+/* Return 0 on success, -1 on error */
 int utf8_range2(const unsigned char *data, int len)
 {
     if (len >= 32) {
@@ -142,7 +143,7 @@ int utf8_range2(const unsigned char *data, int len)
         int error_reduced =
             _mm_movemask_epi8(_mm_cmpeq_epi8(error, _mm_set1_epi8(0)));
         if (error_reduced != 0xFFFF)
-            return 0;
+            return -1;
 
         int32_t token4 = _mm_extract_epi32(prev_input, 3);
         const int8_t *token = (const int8_t *)&token4;

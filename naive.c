@@ -28,9 +28,11 @@
  * +--------------------+------------+-------------+------------+-------------+
  */
 
-/* return 0-invalid, 1-valid */
+/* Return 0 - success,  >0 - index(1 based) of first error char */
 int utf8_naive(const unsigned char *data, int len)
 {
+    int err_pos = 1;
+
     while (len) {
         int bytes;
         const unsigned char byte1 = data[0];
@@ -72,18 +74,19 @@ int utf8_naive(const unsigned char *data, int len)
                          (byte1 == 0xF4 && byte2 <= 0x8F))) {
                     bytes = 4;
                 } else {
-                    return 0;
+                    return err_pos;
                 }
             } else {
-                return 0;
+                return err_pos;
             }
         } else {
-            return 0;
+            return err_pos;
         }
 
         len -= bytes;
+        err_pos += bytes;
         data += bytes;
     }
 
-    return 1;
+    return 0;
 }

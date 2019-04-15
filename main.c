@@ -129,6 +129,7 @@ static void prepare_test_buf(unsigned char *buf, const struct test *pos,
     }
 }
 
+/* Return 0 on success, -1 on error */
 static int test_manual(const struct ftab *ftab)
 {
 #pragma GCC diagnostic push
@@ -195,17 +196,17 @@ static int test_manual(const struct ftab *ftab)
 
     /* Test single token */
     for (int i = 0; i < sizeof(pos)/sizeof(pos[0]); ++i) {
-        if (ftab->func(pos[i].data, pos[i].len) == 0) {
+        if (ftab->func(pos[i].data, pos[i].len) != 0) {
             printf("FAILED positive test: ");
             print_test(pos[i].data, pos[i].len);
-            return 0;
+            return -1;
         }
     }
     for (int i = 0; i < sizeof(neg)/sizeof(neg[0]); ++i) {
-        if (ftab->func(neg[i].data, neg[i].len) != 0) {
+        if (ftab->func(neg[i].data, neg[i].len) == 0) {
             printf("FAILED negitive test: ");
             print_test(neg[i].data, neg[i].len);
-            return 0;
+            return -1;
         }
     }
 
@@ -222,10 +223,10 @@ static int test_manual(const struct ftab *ftab)
         prepare_test_buf(buf, pos, sizeof(pos)/sizeof(pos[0]), i);
         buf_len = 1024;
         for (int j = 0; j < 16; ++j) {
-            if (ftab->func(buf, buf_len) == 0) {
+            if (ftab->func(buf, buf_len) != 0) {
                 printf("FAILED positive test: ");
                 print_test(buf, buf_len);
-                return 0;
+                return -1;
             }
             for (int k = buf_len; k >= 1; --k)
                 buf[k] = buf[k-1];
@@ -236,10 +237,10 @@ static int test_manual(const struct ftab *ftab)
         /* Negative test: trunk last non ascii */
         while (buf_len >= 1 && buf[buf_len-1] <= 0x7F)
             --buf_len;
-        if (buf_len && ftab->func(buf, buf_len-1) != 0) {
+        if (buf_len && ftab->func(buf, buf_len-1) == 0) {
             printf("FAILED negitive test: ");
             print_test(buf, buf_len);
-            return 0;
+            return -1;
         }
     }
 
@@ -251,10 +252,10 @@ static int test_manual(const struct ftab *ftab)
         memcpy(buf+1024, neg[i].data, neg[i].len);
         buf_len = 1024 + neg[i].len;
         for (int j = 0; j < 16; ++j) {
-            if (ftab->func(buf, buf_len) != 0) {
+            if (ftab->func(buf, buf_len) == 0) {
                 printf("FAILED negative test: ");
                 print_test(buf, buf_len);
-                return 0;
+                return -1;
             }
             for (int k = buf_len; k >= 1; --k)
                 buf[k] = buf[k-1];
@@ -263,30 +264,30 @@ static int test_manual(const struct ftab *ftab)
         }
     }
 
-    return 1;
+    return 0;
 }
 
 static void test(const unsigned char *data, int len, const struct ftab *ftab)
 {
     printf("%s\n", ftab->name);
-    printf("standard test: %s\n", ftab->func(data, len) ? "pass" : "FAIL");
+    printf("standard test: %s\n", ftab->func(data, len) ? "FAIL" : "pass");
 
-    printf("manual test: %s\n", test_manual(ftab) ? "pass" : "FAIL");
+    printf("manual test: %s\n", test_manual(ftab) ? "FAIL" : "pass");
 }
 
 static void bench(const unsigned char *data, int len, const struct ftab *ftab)
 {
     const int loops = 1024*1024*1024/len;
-    int ret = 1;
+    int ret = 0;
     double time, size;
     struct timeval tv1, tv2;
 
     fprintf(stderr, "bench %s... ", ftab->name);
     gettimeofday(&tv1, 0);
     for (int i = 0; i < loops; ++i)
-        ret &= ftab->func(data, len);
+        ret |= ftab->func(data, len);
     gettimeofday(&tv2, 0);
-    printf("%s\n", ret?"pass":"FAIL");
+    printf("%s\n", ret?"FAIL":"pass");
 
     time = tv2.tv_usec - tv1.tv_usec;
     time = time / 1000000 + tv2.tv_sec - tv1.tv_sec;
@@ -301,7 +302,7 @@ static void usage(const char *bin)
     printf("Usage:\n");
     printf("%s test  [alg]      ==> test all or one algorithm\n", bin);
     printf("%s bench [alg]      ==> benchmark all or one algorithm\n", bin);
-    printf("%s bench size NUM ==> benchmark with specific buffer size\n", bin);
+    printf("%s bench size NUM   ==> benchmark with specific buffer size\n", bin);
     printf("alg = ");
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i)
         printf("%s ", ftab[i].name);

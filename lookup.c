@@ -21,6 +21,7 @@ static const unsigned char utf8d[] = {
     1,3,1,1,1,1,1,3,1,3,1,1,1,1,1,1,1,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // s7..s8
 };
 
+/* Return 0 on success, -1 on error */
 int utf8_lookup(const unsigned char *data, int len)
 {
     int state = 0;
@@ -28,5 +29,5 @@ int utf8_lookup(const unsigned char *data, int len)
     while (len-- && state != UTF8_REJECT)
         state = utf8d[256 + state*16 + utf8d[*data++]];
 
-    return state == UTF8_ACCEPT;
+    return state == UTF8_ACCEPT ? 0 : -1;
 }

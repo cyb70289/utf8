@@ -78,9 +78,16 @@ static const int8_t _ef_fe_tbl[] = {
     0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
+#define RET_ERR_IDX 0   /* Define 1 to return index of first error char */
+
 /* 5x faster than naive method */
+/* Return 0 - success, -1 - error, >0 - first error char(if RET_ERR_IDX = 1) */
 int utf8_range(const unsigned char *data, int len)
 {
+#if  RET_ERR_IDX
+    int err_pos = 1;
+#endif
+
     if (len >= 16) {
         __m128i prev_input = _mm_set1_epi8(0);
         __m128i prev_first_len = _mm_set1_epi8(0);
@@ -180,21 +187,35 @@ int utf8_range(const unsigned char *data, int len)
             __m128i maxv = _mm_shuffle_epi8(range_max_tbl, range);
 
             /* Check value range */
+#if RET_ERR_IDX
+            error = _mm_cmplt_epi8(input, minv);
+            error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
+            /* 5% performance drop from this conditional branch */
+            if (!_mm_testz_si128(error, error))
+                break;
+#else
             error = _mm_or_si128(error, _mm_cmplt_epi8(input, minv));
             error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
+#endif
 
             prev_input = input;
             prev_first_len = first_len;
 
             data += 16;
             len -= 16;
+#if RET_ERR_IDX
+            err_pos += 16;
+#endif
         }
 
-        /* Reduce error vector, error_reduced = 0xFFFF if error == 0 */
-        int error_reduced =
-            _mm_movemask_epi8(_mm_cmpeq_epi8(error, _mm_set1_epi8(0)));
-        if (error_reduced != 0xFFFF)
-            return 0;
+#if RET_ERR_IDX
+        /* Error in first 16 bytes */
+        if (err_pos == 1)
+            goto do_naive;
+#else
+        if (!_mm_testz_si128(error, error))
+            return -1;
+#endif
 
         /* Find previous token (not 80~BF) */
         int32_t token4 = _mm_extract_epi32(prev_input, 3);
@@ -209,10 +230,22 @@ int utf8_range(const unsigned char *data, int len)
 
         data -= lookahead;
         len += lookahead;
+#if RET_ERR_IDX
+        err_pos -= lookahead;
+#endif
     }
 
     /* Check remaining bytes with naive method */
+#if RET_ERR_IDX
+    int err_pos2;
+do_naive:
+    err_pos2 = utf8_naive(data, len);
+    if (err_pos2)
+        return err_pos + err_pos2 - 1;
+    return 0;
+#else
     return utf8_naive(data, len);
+#endif
 }
 
 #endif

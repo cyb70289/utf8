@@ -180,6 +180,7 @@ checkUTF8Bytes(int8x16_t current_bytes, struct processed_utf_bytes *previous,
 
 static const int8_t _verror[] = {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 1};
 
+/* Return 0 on success, -1 on error */
 int utf8_lemire(const unsigned char *src, int len) {
   size_t i = 0;
   int8x16_t has_error = vdupq_n_s8(0);
@@ -208,7 +209,7 @@ int utf8_lemire(const unsigned char *src, int len) {
                      has_error);
   }
 
-  return vmaxvq_u8(vreinterpretq_u8_s8(has_error)) == 0;
+  return vmaxvq_u8(vreinterpretq_u8_s8(has_error)) == 0 ? 0 : -1;
 }
 
 #endif

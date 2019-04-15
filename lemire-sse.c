@@ -170,6 +170,7 @@ checkUTF8Bytes(__m128i current_bytes, struct processed_utf_bytes *previous,
   return pb;
 }
 
+/* Return 0 on success, -1 on error */
 int utf8_lemire(const unsigned char *src, int len) {
   size_t i = 0;
   __m128i has_error = _mm_setzero_si128();
@@ -199,7 +200,7 @@ int utf8_lemire(const unsigned char *src, int len) {
                      has_error);
   }
 
-  return _mm_testz_si128(has_error, has_error);
+  return _mm_testz_si128(has_error, has_error) ? 0 : -1;
 }
 
 #endif

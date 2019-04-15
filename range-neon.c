@@ -97,7 +97,8 @@ static const uint8_t _range_adjust_tbl[] = {
                  0,     0,
 };
 
-// 2x ~ 4x faster than naive method
+/* 2x ~ 4x faster than naive method */
+/* Return 0 on success, -1 on error */
 int utf8_range(const unsigned char *data, int len)
 {
     if (len >= 16) {
@@ -197,7 +198,7 @@ int utf8_range(const unsigned char *data, int len)
 
         /* Delay error check till loop ends */
         if (vmaxvq_u8(error))
-            return 0;
+            return -1;
 
         /* Find previous token (not 80~BF) */
         uint32_t token4;

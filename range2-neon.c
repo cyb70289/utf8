@@ -32,6 +32,7 @@ static const uint8_t _range_adjust_tbl[] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0,
 };
 
+/* Return 0 on success, -1 on error */
 int utf8_range2(const unsigned char *data, int len)
 {
     if (len >= 32) {
@@ -123,7 +124,7 @@ int utf8_range2(const unsigned char *data, int len)
         }
 
         if (vmaxvq_u8(error))
-            return 0;
+            return -1;
 
         uint32_t token4;
         vst1q_lane_u32(&token4, vreinterpretq_u32_u8(prev_input), 3);
