@@ -140,9 +140,7 @@ int utf8_range2(const unsigned char *data, int len)
             len -= 32;
         }
 
-        int error_reduced =
-            _mm_movemask_epi8(_mm_cmpeq_epi8(error, _mm_set1_epi8(0)));
-        if (error_reduced != 0xFFFF)
+        if (!_mm_testz_si128(error, error))
             return -1;
 
         int32_t token4 = _mm_extract_epi32(prev_input, 3);
