@@ -14,6 +14,10 @@ int utf8_boost(const unsigned char *data, int len);
 int utf8_lemire(const unsigned char *data, int len);
 int utf8_range(const unsigned char *data, int len);
 int utf8_range2(const unsigned char *data, int len);
+#ifdef __AVX2__
+int utf8_lemire_avx2(const unsigned char *data, int len);
+int utf8_range_avx2(const unsigned char *data, int len);
+#endif
 
 static struct ftab {
     const char *name;
@@ -39,6 +43,16 @@ static struct ftab {
         .name = "range2",
         .func = utf8_range2,
     },
+#ifdef __AVX2__
+    {
+        .name = "lemire_avx2",
+        .func = utf8_range_avx2,
+    },
+    {
+        .name = "range_avx2",
+        .func = utf8_range_avx2,
+    },
+#endif
 #ifdef BOOST
     {
         .name = "boost",
@@ -89,6 +103,10 @@ static unsigned char *load_test_file(int *len)
         printf("Failed to read file!\n");
         exit(1);
     }
+
+    
+    utf8_range(data, *len);
+    utf8_range_avx2(data, *len);
 
     close(fd);
 
