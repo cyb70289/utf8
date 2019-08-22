@@ -1,15 +1,17 @@
-# Fast UTF-8 validation with Range algorithm (NEON+SSE4)
+# Fast UTF-8 validation with Range algorithm (NEON+SSE4+AVX2)
 
-This is a brand new algorithm to leverage SIMD for fast UTF-8 string validation. Both **NEON**(armv8a) and **SSE4** versions are implemented.
+This is a brand new algorithm to leverage SIMD for fast UTF-8 string validation. Both **NEON**(armv8a) and **SSE4** versions are implemented. **AVX2** implementation contributed by [ioioioio](https://github.com/ioioioio).
 
 Four UTF-8 validation methods are compared on both x86 and Arm platforms. Benchmark result shows range base algorithm is the best solution on Arm, and achieves same performance as [Lemire's approach](https://lemire.me/blog/2018/05/16/validating-utf-8-strings-using-as-little-as-0-7-cycles-per-byte/) on x86.
 
 * Range based algorithm
   * range-neon.c: NEON version
   * range-sse.c: SSE4 version
+  * range-avx2.c: AVX2 version
   * range2-neon.c, range2-sse.c: Process two blocks in one iteration
 * [Lemire's SIMD implementation](https://github.com/lemire/fastvalidate-utf-8)
   * lemire-sse.c: SSE4 version
+  * lemire-avx2.c: AVX2 version
   * lemire-neon.c: NEON porting
 * naive.c: Naive UTF-8 validation byte by byte
 * lookup.c: [Lookup-table method](http://bjoern.hoehrmann.de/utf-8/decoder/dfa/)
@@ -31,7 +33,7 @@ Four UTF-8 validation methods are compared on both x86 and Arm platforms. Benchm
 1. Call validation sub-routines in a loop until 1G bytes are checked.
 1. Calculate speed(MB/s) of validating UTF-8 strings.
 
-### Arm(armv8a)
+### NEON(armv8a)
 Test case | naive | lookup | lemire | range | range2
 :-------- | :---- | :----- | :----- | :---- | :-----
 [UTF-demo.txt](https://raw.githubusercontent.com/cyb70289/utf8/master/UTF-8-demo.txt) | 562.25 | 412.84 | 1198.50 | 1411.72 | **1579.85**
@@ -43,7 +45,7 @@ Test case | naive | lookup | lemire | range | range2
 64K bytes | 817.35 | 412.24 | 1200.20 | 1415.11 | **1583.86**
 1M bytes | 815.70  | 411.93 | 1200.93 | 1415.65 | **1585.40**
 
-### x86(E5-2650)
+### SSE4(E5-2650)
 Test case | naive | lookup | lemire | range | range2
 :-------- | :---- | :----- | :----- | :---- | :-----
 [UTF-demo.txt](https://raw.githubusercontent.com/cyb70289/utf8/master/UTF-8-demo.txt) | 753.70 | 310.41 | 3954.74 | 3945.60 | **3986.13**
