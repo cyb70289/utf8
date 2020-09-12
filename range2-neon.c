@@ -49,7 +49,10 @@ int utf8_range2(const unsigned char *data, int len)
         const uint8x16_t const_2 = vdupq_n_u8(2);
         const uint8x16_t const_e0 = vdupq_n_u8(0xE0);
 
-        uint8x16_t error = vdupq_n_u8(0);
+        uint8x16_t error1 = vdupq_n_u8(0);
+        uint8x16_t error2 = vdupq_n_u8(0);
+        uint8x16_t error3 = vdupq_n_u8(0);
+        uint8x16_t error4 = vdupq_n_u8(0);
 
         while (len >= 32) {
             /*************************** block 1 *****************************/
@@ -66,13 +69,13 @@ int utf8_range2(const unsigned char *data, int len)
                 vorrq_u8(range, vextq_u8(prev_first_len, first_len, 15));
 
             uint8x16_t tmp1, tmp2;
-            tmp1 = vqsubq_u8(first_len, const_1);
-            tmp2 = vqsubq_u8(prev_first_len, const_1);
-            range = vorrq_u8(range, vextq_u8(tmp2, tmp1, 14));
+            tmp1 = vextq_u8(prev_first_len, first_len, 14);
+            tmp1 = vqsubq_u8(tmp1, const_1);
+            range = vorrq_u8(range, tmp1);
 
-            tmp1 = vqsubq_u8(first_len, const_2);
-            tmp2 = vqsubq_u8(prev_first_len, const_2);
-            range = vorrq_u8(range, vextq_u8(tmp2, tmp1, 13));
+            tmp2 = vextq_u8(prev_first_len, first_len, 13);
+            tmp2 = vqsubq_u8(tmp2, const_2);
+            range = vorrq_u8(range, tmp2);
 
             uint8x16_t shift1 = vextq_u8(prev_input, input, 15);
             uint8x16_t pos = vsubq_u8(shift1, const_e0);
@@ -81,8 +84,8 @@ int utf8_range2(const unsigned char *data, int len)
             uint8x16_t minv = vqtbl1q_u8(range_min_tbl, range);
             uint8x16_t maxv = vqtbl1q_u8(range_max_tbl, range);
 
-            error = vorrq_u8(error, vcltq_u8(input, minv));
-            error = vorrq_u8(error, vcgtq_u8(input, maxv));
+            error1 = vorrq_u8(error1, vcltq_u8(input, minv));
+            error2 = vorrq_u8(error2, vcgtq_u8(input, maxv));
 
             /*************************** block 2 *****************************/
             const uint8x16_t _input = vld1q_u8(data+16);
@@ -97,13 +100,13 @@ int utf8_range2(const unsigned char *data, int len)
             _range =
                 vorrq_u8(_range, vextq_u8(first_len, _first_len, 15));
 
-            tmp1 = vqsubq_u8(_first_len, const_1);
-            tmp2 = vqsubq_u8(first_len, const_1);
-            _range = vorrq_u8(_range, vextq_u8(tmp2, tmp1, 14));
+            tmp1 = vextq_u8(first_len, _first_len, 14);
+            tmp1 = vqsubq_u8(tmp1, const_1);
+            _range = vorrq_u8(_range, tmp1);
 
-            tmp1 = vqsubq_u8(_first_len, const_2);
-            tmp2 = vqsubq_u8(first_len, const_2);
-            _range = vorrq_u8(_range, vextq_u8(tmp2, tmp1, 13));
+            tmp2 = vextq_u8(first_len, _first_len, 13);
+            tmp2 = vqsubq_u8(tmp2, const_2);
+            _range = vorrq_u8(_range, tmp2);
 
             shift1 = vextq_u8(input, _input, 15);
             pos = vsubq_u8(shift1, const_e0);
@@ -112,8 +115,8 @@ int utf8_range2(const unsigned char *data, int len)
             minv = vqtbl1q_u8(range_min_tbl, _range);
             maxv = vqtbl1q_u8(range_max_tbl, _range);
 
-            error = vorrq_u8(error, vcltq_u8(_input, minv));
-            error = vorrq_u8(error, vcgtq_u8(_input, maxv));
+            error3 = vorrq_u8(error3, vcltq_u8(_input, minv));
+            error4 = vorrq_u8(error4, vcgtq_u8(_input, maxv));
 
             /************************ next iteration *************************/
             prev_input = _input;
@@ -122,8 +125,11 @@ int utf8_range2(const unsigned char *data, int len)
             data += 32;
             len -= 32;
         }
+        error3 = vorrq_u8(error3, error4);
+        error1 = vorrq_u8(error1, error2);
+        error1 = vorrq_u8(error1, error3);
 
-        if (vmaxvq_u8(error))
+        if (vmaxvq_u8(error1))
             return -1;
 
         uint32_t token4;
