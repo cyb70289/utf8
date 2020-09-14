@@ -104,10 +104,10 @@ static unsigned char *load_test_file(int *len)
         exit(1);
     }
 
-    
     utf8_range(data, *len);
+#ifdef __AVX2__
     utf8_range_avx2(data, *len);
-
+#endif
     close(fd);
 
     return data;

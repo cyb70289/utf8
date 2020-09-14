@@ -49,81 +49,84 @@ int utf8_range2(const unsigned char *data, int len)
         const uint8x16_t const_2 = vdupq_n_u8(2);
         const uint8x16_t const_e0 = vdupq_n_u8(0xE0);
 
-        uint8x16_t error = vdupq_n_u8(0);
+        uint8x16_t error1 = vdupq_n_u8(0);
+        uint8x16_t error2 = vdupq_n_u8(0);
+        uint8x16_t error3 = vdupq_n_u8(0);
+        uint8x16_t error4 = vdupq_n_u8(0);
 
         while (len >= 32) {
-            /*************************** block 1 *****************************/
-            const uint8x16_t input = vld1q_u8(data);
+            /******************* two blocks interleaved **********************/
 
-            uint8x16_t high_nibbles = vshrq_n_u8(input, 4);
+            /* Forces a double load on Clang */
+            const uint8x16x2_t input_pair = vld1q_u8_x2(data);
+            const uint8x16_t input_a = input_pair.val[0];
+            const uint8x16_t input_b = input_pair.val[1];
 
-            const uint8x16_t first_len =
-                vqtbl1q_u8(first_len_tbl, high_nibbles);
+            const uint8x16_t high_nibbles_a = vshrq_n_u8(input_a, 4);
+            const uint8x16_t high_nibbles_b = vshrq_n_u8(input_b, 4);
 
-            uint8x16_t range = vqtbl1q_u8(first_range_tbl, high_nibbles);
+            const uint8x16_t first_len_a =
+                vqtbl1q_u8(first_len_tbl, high_nibbles_a);
+            const uint8x16_t first_len_b =
+                vqtbl1q_u8(first_len_tbl, high_nibbles_b);
 
-            range =
-                vorrq_u8(range, vextq_u8(prev_first_len, first_len, 15));
+            uint8x16_t range_a = vqtbl1q_u8(first_range_tbl, high_nibbles_a);
+            uint8x16_t range_b = vqtbl1q_u8(first_range_tbl, high_nibbles_b);
 
-            uint8x16_t tmp1, tmp2;
-            tmp1 = vqsubq_u8(first_len, const_1);
-            tmp2 = vqsubq_u8(prev_first_len, const_1);
-            range = vorrq_u8(range, vextq_u8(tmp2, tmp1, 14));
+            range_a =
+                vorrq_u8(range_a, vextq_u8(prev_first_len, first_len_a, 15));
+            range_b =
+                vorrq_u8(range_b, vextq_u8(first_len_a, first_len_b, 15));
 
-            tmp1 = vqsubq_u8(first_len, const_2);
-            tmp2 = vqsubq_u8(prev_first_len, const_2);
-            range = vorrq_u8(range, vextq_u8(tmp2, tmp1, 13));
+            uint8x16_t tmp1_a, tmp2_a, tmp1_b, tmp2_b;
+            tmp1_a = vextq_u8(prev_first_len, first_len_a, 14);
+            tmp1_a = vqsubq_u8(tmp1_a, const_1);
+            range_a = vorrq_u8(range_a, tmp1_a);
 
-            uint8x16_t shift1 = vextq_u8(prev_input, input, 15);
-            uint8x16_t pos = vsubq_u8(shift1, const_e0);
-            range = vaddq_u8(range, vqtbl2q_u8(range_adjust_tbl, pos));
+            tmp1_b = vextq_u8(first_len_a, first_len_b, 14);
+            tmp1_b = vqsubq_u8(tmp1_b, const_1);
+            range_b = vorrq_u8(range_b, tmp1_b);
 
-            uint8x16_t minv = vqtbl1q_u8(range_min_tbl, range);
-            uint8x16_t maxv = vqtbl1q_u8(range_max_tbl, range);
+            tmp2_a = vextq_u8(prev_first_len, first_len_a, 13);
+            tmp2_a = vqsubq_u8(tmp2_a, const_2);
+            range_a = vorrq_u8(range_a, tmp2_a);
 
-            error = vorrq_u8(error, vcltq_u8(input, minv));
-            error = vorrq_u8(error, vcgtq_u8(input, maxv));
+            tmp2_b = vextq_u8(first_len_a, first_len_b, 13);
+            tmp2_b = vqsubq_u8(tmp2_b, const_2);
+            range_b = vorrq_u8(range_b, tmp2_b);
 
-            /*************************** block 2 *****************************/
-            const uint8x16_t _input = vld1q_u8(data+16);
+            uint8x16_t shift1_a = vextq_u8(prev_input, input_a, 15);
+            uint8x16_t pos_a = vsubq_u8(shift1_a, const_e0);
+            range_a = vaddq_u8(range_a, vqtbl2q_u8(range_adjust_tbl, pos_a));
 
-            high_nibbles = vshrq_n_u8(_input, 4);
+            uint8x16_t shift1_b = vextq_u8(input_a, input_b, 15);
+            uint8x16_t pos_b = vsubq_u8(shift1_b, const_e0);
+            range_b = vaddq_u8(range_b, vqtbl2q_u8(range_adjust_tbl, pos_b));
 
-            const uint8x16_t _first_len =
-                vqtbl1q_u8(first_len_tbl, high_nibbles);
+            uint8x16_t minv_a = vqtbl1q_u8(range_min_tbl, range_a);
+            uint8x16_t maxv_a = vqtbl1q_u8(range_max_tbl, range_a);
 
-            uint8x16_t _range = vqtbl1q_u8(first_range_tbl, high_nibbles);
+            uint8x16_t minv_b = vqtbl1q_u8(range_min_tbl, range_b);
+            uint8x16_t maxv_b = vqtbl1q_u8(range_max_tbl, range_b);
 
-            _range =
-                vorrq_u8(_range, vextq_u8(first_len, _first_len, 15));
+            error1 = vorrq_u8(error1, vcltq_u8(input_a, minv_a));
+            error2 = vorrq_u8(error2, vcgtq_u8(input_a, maxv_a));
 
-            tmp1 = vqsubq_u8(_first_len, const_1);
-            tmp2 = vqsubq_u8(first_len, const_1);
-            _range = vorrq_u8(_range, vextq_u8(tmp2, tmp1, 14));
-
-            tmp1 = vqsubq_u8(_first_len, const_2);
-            tmp2 = vqsubq_u8(first_len, const_2);
-            _range = vorrq_u8(_range, vextq_u8(tmp2, tmp1, 13));
-
-            shift1 = vextq_u8(input, _input, 15);
-            pos = vsubq_u8(shift1, const_e0);
-            _range = vaddq_u8(_range, vqtbl2q_u8(range_adjust_tbl, pos));
-
-            minv = vqtbl1q_u8(range_min_tbl, _range);
-            maxv = vqtbl1q_u8(range_max_tbl, _range);
-
-            error = vorrq_u8(error, vcltq_u8(_input, minv));
-            error = vorrq_u8(error, vcgtq_u8(_input, maxv));
+            error3 = vorrq_u8(error3, vcltq_u8(input_b, minv_b));
+            error4 = vorrq_u8(error4, vcgtq_u8(input_b, maxv_b));
 
             /************************ next iteration *************************/
-            prev_input = _input;
-            prev_first_len = _first_len;
+            prev_input = input_b;
+            prev_first_len = first_len_b;
 
             data += 32;
             len -= 32;
         }
+        error1 = vorrq_u8(error1, error2);
+        error1 = vorrq_u8(error1, error3);
+        error1 = vorrq_u8(error1, error4);
 
-        if (vmaxvq_u8(error))
+        if (vmaxvq_u8(error1))
             return -1;
 
         uint32_t token4;

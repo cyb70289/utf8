@@ -117,7 +117,9 @@ int utf8_range(const unsigned char *data, int len)
         const uint8x16_t const_2 = vdupq_n_u8(2);
         const uint8x16_t const_e0 = vdupq_n_u8(0xE0);
 
-        uint8x16_t error = vdupq_n_u8(0);
+        /* We use two error registers to remove a dependency. */
+        uint8x16_t error1 = vdupq_n_u8(0);
+        uint8x16_t error2 = vdupq_n_u8(0);
 
         while (len >= 16) {
             const uint8x16_t input = vld1q_u8(data);
@@ -144,21 +146,21 @@ int utf8_range(const unsigned char *data, int len)
             /* Third Byte: set range index to saturate_sub(first_len, 1) */
             /* 0 for 00~7F, 0 for C0~DF, 1 for E0~EF, 2 for F0~FF */
             uint8x16_t tmp1, tmp2;
-            /* tmp1 = saturate_sub(first_len, 1) */
-            tmp1 = vqsubq_u8(first_len, const_1);
-            /* tmp2 = saturate_sub(prev_first_len, 1) */
-            tmp2 = vqsubq_u8(prev_first_len, const_1);
-            /* range |= (tmp1, tmp2) << 2 bytes */
-            range = vorrq_u8(range, vextq_u8(tmp2, tmp1, 14));
+            /* tmp1 = (first_len, prev_first_len) << 2 bytes */
+            tmp1 = vextq_u8(prev_first_len, first_len, 14);
+            /* tmp1 = saturate_sub(tmp1, 1) */
+            tmp1 = vqsubq_u8(tmp1, const_1);
+            /* range |= tmp1 */
+            range = vorrq_u8(range, tmp1);
 
             /* Fourth Byte: set range index to saturate_sub(first_len, 2) */
             /* 0 for 00~7F, 0 for C0~DF, 0 for E0~EF, 1 for F0~FF */
-            /* tmp1 = saturate_sub(first_len, 2) */
-            tmp1 = vqsubq_u8(first_len, const_2);
-            /* tmp2 = saturate_sub(prev_first_len, 2) */
-            tmp2 = vqsubq_u8(prev_first_len, const_2);
-            /* range |= (tmp1, tmp2) << 3 bytes */
-            range = vorrq_u8(range, vextq_u8(tmp2, tmp1, 13));
+            /* tmp2 = (first_len, prev_first_len) << 3 bytes */
+            tmp2 = vextq_u8(prev_first_len, first_len, 13);
+            /* tmp2 = saturate_sub(tmp2, 2) */
+            tmp2 = vqsubq_u8(tmp2, const_2);
+            /* range |= tmp2 */
+            range = vorrq_u8(range, tmp2);
 
             /*
              * Now we have below range indices caluclated
@@ -186,8 +188,8 @@ int utf8_range(const unsigned char *data, int len)
             uint8x16_t maxv = vqtbl1q_u8(range_max_tbl, range);
 
             /* Check value range */
-            error = vorrq_u8(error, vcltq_u8(input, minv));
-            error = vorrq_u8(error, vcgtq_u8(input, maxv));
+            error1 = vorrq_u8(error1, vcltq_u8(input, minv));
+            error2 = vorrq_u8(error2, vcgtq_u8(input, maxv));
 
             prev_input = input;
             prev_first_len = first_len;
@@ -195,9 +197,11 @@ int utf8_range(const unsigned char *data, int len)
             data += 16;
             len -= 16;
         }
+        /* Merge our error counters together */
+        error1 = vorrq_u8(error1, error2);
 
         /* Delay error check till loop ends */
-        if (vmaxvq_u8(error))
+        if (vmaxvq_u8(error1))
             return -1;
 
         /* Find previous token (not 80~BF) */
