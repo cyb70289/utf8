@@ -126,7 +126,10 @@ int utf8_range_avx2(const unsigned char *data, int len)
         const __m256i ef_fe_tbl =
             _mm256_loadu_si256((const __m256i *)_ef_fe_tbl);
 
-        __m256i error = _mm256_set1_epi8(0);
+#if !RET_ERR_IDX
+        __m256i error1 = _mm256_set1_epi8(0);
+        __m256i error2 = _mm256_set1_epi8(0);
+#endif
 
         while (len >= 32) {
             const __m256i input = _mm256_loadu_si256((const __m256i *)data);
@@ -153,23 +156,23 @@ int utf8_range_avx2(const unsigned char *data, int len)
             /* Third Byte: set range index to saturate_sub(first_len, 1) */
             /* 0 for 00~7F, 0 for C0~DF, 1 for E0~EF, 2 for F0~FF */
             __m256i tmp1, tmp2;
- 
-            /* tmp1 = saturate_sub(first_len, 1) */
-            tmp1 = _mm256_subs_epu8(first_len, _mm256_set1_epi8(1));
-            /* tmp2 = saturate_sub(prev_first_len, 1) */
-            tmp2 = _mm256_subs_epu8(prev_first_len, _mm256_set1_epi8(1));
-   
-            /* range |= (tmp1, tmp2) << 2 bytes */
-            range = _mm256_or_si256(range, push_last_2bytes_of_a_to_b(tmp2, tmp1));
+
+            /* tmp1 = (first_len, prev_first_len) << 2 bytes */
+            tmp1 = push_last_2bytes_of_a_to_b(prev_first_len, first_len);
+            /* tmp2 = saturate_sub(tmp1, 1) */
+            tmp2 = _mm256_subs_epu8(tmp1, _mm256_set1_epi8(1));
+
+            /* range |= tmp2 */
+            range = _mm256_or_si256(range, tmp2);
 
             /* Fourth Byte: set range index to saturate_sub(first_len, 2) */
             /* 0 for 00~7F, 0 for C0~DF, 0 for E0~EF, 1 for F0~FF */
-            /* tmp1 = saturate_sub(first_len, 2) */
-            tmp1 = _mm256_subs_epu8(first_len, _mm256_set1_epi8(2));
-            /* tmp2 = saturate_sub(prev_first_len, 2) */
-            tmp2 = _mm256_subs_epu8(prev_first_len, _mm256_set1_epi8(2));
-            /* range |= (tmp1, tmp2) << 3 bytes */
-            range = _mm256_or_si256(range, push_last_3bytes_of_a_to_b(tmp2, tmp1));
+            /* tmp1 = (first_len, prev_first_len) << 3 bytes */
+            tmp1 = push_last_3bytes_of_a_to_b(prev_first_len, first_len);
+            /* tmp2 = saturate_sub(tmp1, 2) */
+            tmp2 = _mm256_subs_epu8(tmp1, _mm256_set1_epi8(2));
+            /* range |= tmp2 */
+            range = _mm256_or_si256(range, tmp2);
 
             /*
              * Now we have below range indices caluclated
@@ -210,14 +213,14 @@ int utf8_range_avx2(const unsigned char *data, int len)
 
             /* Check value range */
 #if RET_ERR_IDX
-            error = _mm256_cmpgt_epi8(minv, input);
+            __m256i error = _mm256_cmpgt_epi8(minv, input);
             error = _mm256_or_si256(error, _mm256_cmpgt_epi8(input, maxv));
             /* 5% performance drop from this conditional branch */
             if (!_mm256_testz_si256(error, error))
                 break;
 #else
-            error = _mm256_or_si256(error, _mm256_cmpgt_epi8(minv, input));
-            error = _mm256_or_si256(error, _mm256_cmpgt_epi8(input, maxv));
+            error1 = _mm256_or_si256(error1, _mm256_cmpgt_epi8(minv, input));
+            error2 = _mm256_or_si256(error2, _mm256_cmpgt_epi8(input, maxv));
 #endif
 
             prev_input = input;
@@ -235,6 +238,7 @@ int utf8_range_avx2(const unsigned char *data, int len)
         if (err_pos == 1)
             goto do_naive;
 #else
+        __m256i error = _mm256_or_si256(error1, error2);
         if (!_mm256_testz_si256(error, error))
             return -1;
 #endif
