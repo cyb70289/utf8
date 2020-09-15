@@ -114,22 +114,22 @@ int utf8_range_avx2(const unsigned char *data, int len)
 
         /* Cached tables */
         const __m256i first_len_tbl =
-            _mm256_lddqu_si256((const __m256i *)_first_len_tbl);
+            _mm256_loadu_si256((const __m256i *)_first_len_tbl);
         const __m256i first_range_tbl =
-            _mm256_lddqu_si256((const __m256i *)_first_range_tbl);
+            _mm256_loadu_si256((const __m256i *)_first_range_tbl);
         const __m256i range_min_tbl =
-            _mm256_lddqu_si256((const __m256i *)_range_min_tbl);
+            _mm256_loadu_si256((const __m256i *)_range_min_tbl);
         const __m256i range_max_tbl =
-            _mm256_lddqu_si256((const __m256i *)_range_max_tbl);
+            _mm256_loadu_si256((const __m256i *)_range_max_tbl);
         const __m256i df_ee_tbl =
-            _mm256_lddqu_si256((const __m256i *)_df_ee_tbl);
+            _mm256_loadu_si256((const __m256i *)_df_ee_tbl);
         const __m256i ef_fe_tbl =
-            _mm256_lddqu_si256((const __m256i *)_ef_fe_tbl);
+            _mm256_loadu_si256((const __m256i *)_ef_fe_tbl);
 
         __m256i error = _mm256_set1_epi8(0);
 
         while (len >= 32) {
-            const __m256i input = _mm256_lddqu_si256((const __m256i *)data);
+            const __m256i input = _mm256_loadu_si256((const __m256i *)data);
 
             /* high_nibbles = input >> 4 */
             const __m256i high_nibbles =

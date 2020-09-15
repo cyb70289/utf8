@@ -42,23 +42,23 @@ int utf8_range2(const unsigned char *data, int len)
         __m128i prev_first_len = _mm_set1_epi8(0);
 
         const __m128i first_len_tbl =
-            _mm_lddqu_si128((const __m128i *)_first_len_tbl);
+            _mm_loadu_si128((const __m128i *)_first_len_tbl);
         const __m128i first_range_tbl =
-            _mm_lddqu_si128((const __m128i *)_first_range_tbl);
+            _mm_loadu_si128((const __m128i *)_first_range_tbl);
         const __m128i range_min_tbl =
-            _mm_lddqu_si128((const __m128i *)_range_min_tbl);
+            _mm_loadu_si128((const __m128i *)_range_min_tbl);
         const __m128i range_max_tbl =
-            _mm_lddqu_si128((const __m128i *)_range_max_tbl);
+            _mm_loadu_si128((const __m128i *)_range_max_tbl);
         const __m128i df_ee_tbl =
-            _mm_lddqu_si128((const __m128i *)_df_ee_tbl);
+            _mm_loadu_si128((const __m128i *)_df_ee_tbl);
         const __m128i ef_fe_tbl =
-            _mm_lddqu_si128((const __m128i *)_ef_fe_tbl);
+            _mm_loadu_si128((const __m128i *)_ef_fe_tbl);
 
         __m128i error = _mm_set1_epi8(0);
 
         while (len >= 32) {
             /***************************** block 1 ****************************/
-            const __m128i input = _mm_lddqu_si128((const __m128i *)data);
+            const __m128i input = _mm_loadu_si128((const __m128i *)data);
 
             __m128i high_nibbles =
                 _mm_and_si128(_mm_srli_epi16(input, 4), _mm_set1_epi8(0x0F));
@@ -96,7 +96,7 @@ int utf8_range2(const unsigned char *data, int len)
             error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
 
             /***************************** block 2 ****************************/
-            const __m128i _input = _mm_lddqu_si128((const __m128i *)(data+16));
+            const __m128i _input = _mm_loadu_si128((const __m128i *)(data+16));
 
             high_nibbles =
                 _mm_and_si128(_mm_srli_epi16(_input, 4), _mm_set1_epi8(0x0F));
