@@ -46,7 +46,7 @@ static struct ftab {
 #ifdef __AVX2__
     {
         .name = "lemire_avx2",
-        .func = utf8_range_avx2,
+        .func = utf8_lemire_avx2,
     },
     {
         .name = "range_avx2",

@@ -94,22 +94,22 @@ int utf8_range(const unsigned char *data, int len)
 
         /* Cached tables */
         const __m128i first_len_tbl =
-            _mm_lddqu_si128((const __m128i *)_first_len_tbl);
+            _mm_loadu_si128((const __m128i *)_first_len_tbl);
         const __m128i first_range_tbl =
-            _mm_lddqu_si128((const __m128i *)_first_range_tbl);
+            _mm_loadu_si128((const __m128i *)_first_range_tbl);
         const __m128i range_min_tbl =
-            _mm_lddqu_si128((const __m128i *)_range_min_tbl);
+            _mm_loadu_si128((const __m128i *)_range_min_tbl);
         const __m128i range_max_tbl =
-            _mm_lddqu_si128((const __m128i *)_range_max_tbl);
+            _mm_loadu_si128((const __m128i *)_range_max_tbl);
         const __m128i df_ee_tbl =
-            _mm_lddqu_si128((const __m128i *)_df_ee_tbl);
+            _mm_loadu_si128((const __m128i *)_df_ee_tbl);
         const __m128i ef_fe_tbl =
-            _mm_lddqu_si128((const __m128i *)_ef_fe_tbl);
+            _mm_loadu_si128((const __m128i *)_ef_fe_tbl);
 
         __m128i error = _mm_set1_epi8(0);
 
         while (len >= 16) {
-            const __m128i input = _mm_lddqu_si128((const __m128i *)data);
+            const __m128i input = _mm_loadu_si128((const __m128i *)data);
 
             /* high_nibbles = input >> 4 */
             const __m128i high_nibbles =
@@ -132,22 +132,22 @@ int utf8_range(const unsigned char *data, int len)
 
             /* Third Byte: set range index to saturate_sub(first_len, 1) */
             /* 0 for 00~7F, 0 for C0~DF, 1 for E0~EF, 2 for F0~FF */
-            __m128i tmp1, tmp2;
-            /* tmp1 = saturate_sub(first_len, 1) */
-            tmp1 = _mm_subs_epu8(first_len, _mm_set1_epi8(1));
-            /* tmp2 = saturate_sub(prev_first_len, 1) */
-            tmp2 = _mm_subs_epu8(prev_first_len, _mm_set1_epi8(1));
-            /* range |= (tmp1, tmp2) << 2 bytes */
-            range = _mm_or_si128(range, _mm_alignr_epi8(tmp1, tmp2, 14));
+            __m128i tmp;
+            /* tmp = (first_len, prev_first_len) << 2 bytes */
+            tmp = _mm_alignr_epi8(first_len, prev_first_len, 14);
+            /* tmp = saturate_sub(tmp, 1) */
+            tmp = _mm_subs_epu8(tmp, _mm_set1_epi8(1));
+            /* range |= tmp */
+            range = _mm_or_si128(range, tmp);
 
             /* Fourth Byte: set range index to saturate_sub(first_len, 2) */
             /* 0 for 00~7F, 0 for C0~DF, 0 for E0~EF, 1 for F0~FF */
-            /* tmp1 = saturate_sub(first_len, 2) */
-            tmp1 = _mm_subs_epu8(first_len, _mm_set1_epi8(2));
-            /* tmp2 = saturate_sub(prev_first_len, 2) */
-            tmp2 = _mm_subs_epu8(prev_first_len, _mm_set1_epi8(2));
-            /* range |= (tmp1, tmp2) << 3 bytes */
-            range = _mm_or_si128(range, _mm_alignr_epi8(tmp1, tmp2, 13));
+            /* tmp = (first_len, prev_first_len) << 3 bytes */
+            tmp = _mm_alignr_epi8(first_len, prev_first_len, 13);
+            /* tmp = saturate_sub(tmp, 2) */
+            tmp = _mm_subs_epu8(tmp, _mm_set1_epi8(2));
+            /* range |= tmp */
+            range = _mm_or_si128(range, tmp);
 
             /*
              * Now we have below range indices caluclated
@@ -175,10 +175,10 @@ int utf8_range(const unsigned char *data, int len)
              * pos-240: | 0   0      0  | 0   0            0  | 0   1      15 |
              * pos+112: | 112 113    127|       >= 128        |     >= 128    |
              */
-            tmp1 = _mm_subs_epu8(pos, _mm_set1_epi8(240));
-            range2 = _mm_shuffle_epi8(df_ee_tbl, tmp1);
-            tmp2 = _mm_adds_epu8(pos, _mm_set1_epi8(112));
-            range2 = _mm_add_epi8(range2, _mm_shuffle_epi8(ef_fe_tbl, tmp2));
+            tmp = _mm_subs_epu8(pos, _mm_set1_epi8(0xF0));
+            range2 = _mm_shuffle_epi8(df_ee_tbl, tmp);
+            tmp = _mm_adds_epu8(pos, _mm_set1_epi8(0x70));
+            range2 = _mm_add_epi8(range2, _mm_shuffle_epi8(ef_fe_tbl, tmp));
 
             range = _mm_add_epi8(range, range2);
 
@@ -194,8 +194,12 @@ int utf8_range(const unsigned char *data, int len)
             if (!_mm_testz_si128(error, error))
                 break;
 #else
-            error = _mm_or_si128(error, _mm_cmplt_epi8(input, minv));
-            error = _mm_or_si128(error, _mm_cmpgt_epi8(input, maxv));
+            /* error |= (input < minv) | (input > maxv) */
+            tmp = _mm_or_si128(
+                      _mm_cmplt_epi8(input, minv),
+                      _mm_cmpgt_epi8(input, maxv)
+                  );
+            error = _mm_or_si128(error, tmp);
 #endif
 
             prev_input = input;

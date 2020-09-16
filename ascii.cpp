@@ -54,8 +54,8 @@ static inline int ascii_simd(const uint8_t *data, int len)
         __m128i or1 = _mm_set1_epi8(0), or2 = or1;
 
         while (len >= 32) {
-            __m128i input1 = _mm_lddqu_si128((const __m128i *)data);
-            __m128i input2 = _mm_lddqu_si128((const __m128i *)data2);
+            __m128i input1 = _mm_loadu_si128((const __m128i *)data);
+            __m128i input2 = _mm_loadu_si128((const __m128i *)data2);
 
             or1 = _mm_or_si128(or1, input1);
             or2 = _mm_or_si128(or2, input2);
