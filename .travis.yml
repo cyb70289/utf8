@@ -1,0 +1,11 @@
+language: c
+sudo: false
+arch:
+  - amd64
+  - arm64
+os: linux
+dist: focal
+
+script:
+  - make
+  - ./utf8 test

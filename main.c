@@ -285,15 +285,18 @@ static int test_manual(const struct ftab *ftab)
     return 0;
 }
 
-static void test(const unsigned char *data, int len, const struct ftab *ftab)
+static int test(const unsigned char *data, int len, const struct ftab *ftab)
 {
+    int ret_standard = ftab->func(data, len);
+    int ret_manual = test_manual(ftab);
     printf("%s\n", ftab->name);
-    printf("standard test: %s\n", ftab->func(data, len) ? "FAIL" : "pass");
+    printf("standard test: %s\n", ret_standard ? "FAIL" : "pass");
+    printf("manual test: %s\n", ret_manual ? "FAIL" : "pass");
 
-    printf("manual test: %s\n", test_manual(ftab) ? "FAIL" : "pass");
+    return ret_standard | ret_manual;
 }
 
-static void bench(const unsigned char *data, int len, const struct ftab *ftab)
+static int bench(const unsigned char *data, int len, const struct ftab *ftab)
 {
     const int loops = 1024*1024*1024/len;
     int ret = 0;
@@ -313,6 +316,8 @@ static void bench(const unsigned char *data, int len, const struct ftab *ftab)
     printf("time: %.4f s\n", time);
     printf("data: %.0f MB\n", size);
     printf("BW: %.2f MB/s\n", size / time);
+
+    return 0;
 }
 
 static void usage(const char *bin)
@@ -332,7 +337,7 @@ int main(int argc, char *argv[])
     int len = 0;
     unsigned char *data;
     const char *alg = NULL;
-    void (*tb)(const unsigned char *data, int len, const struct ftab *ftab);
+    int (*tb)(const unsigned char *data, int len, const struct ftab *ftab);
 
     tb = NULL;
     if (argc >= 2) {
@@ -368,12 +373,13 @@ int main(int argc, char *argv[])
     else
         data = load_test_file(&len);
 
+    int ret = 0;
     if (tb == bench)
         printf("=============== Bench UTF8 (%d bytes) ===============\n", len);
     for (int i = 0; i < sizeof(ftab)/sizeof(ftab[0]); ++i) {
         if (alg && strcmp(alg, ftab[i].name) != 0)
             continue;
-        tb((const unsigned char *)data, len, &ftab[i]);
+        ret |= tb((const unsigned char *)data, len, &ftab[i]);
         printf("\n");
     }
 
@@ -395,5 +401,5 @@ int main(int argc, char *argv[])
 
     free(data);
 
-    return 0;
+    return ret;
 }

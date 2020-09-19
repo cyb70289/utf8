@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/cyb70289/utf8.svg?branch=master)](https://travis-ci.com/cyb70289/utf8)
+
 # Fast UTF-8 validation with Range algorithm (NEON+SSE4+AVX2)
 
 This is a brand new algorithm to leverage SIMD for fast UTF-8 string validation. Both **NEON**(armv8a) and **SSE4** versions are implemented. **AVX2** implementation contributed by [ioioioio](https://github.com/ioioioio).
