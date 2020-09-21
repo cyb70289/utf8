@@ -4,7 +4,7 @@ arch:
   - amd64
   - arm64
 os: linux
-dist: focal
+dist: bionic
 
 script:
   - make

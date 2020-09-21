@@ -57,10 +57,16 @@ int utf8_range2(const unsigned char *data, int len)
         while (len >= 32) {
             /******************* two blocks interleaved **********************/
 
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ < 8)
+            /* gcc doesn't support vldq1_u8_x2 until version 8 */
+            const uint8x16_t input_a = vld1q_u8(data);
+            const uint8x16_t input_b = vld1q_u8(data + 16);
+#else
             /* Forces a double load on Clang */
             const uint8x16x2_t input_pair = vld1q_u8_x2(data);
             const uint8x16_t input_a = input_pair.val[0];
             const uint8x16_t input_b = input_pair.val[1];
+#endif
 
             const uint8x16_t high_nibbles_a = vshrq_n_u8(input_a, 4);
             const uint8x16_t high_nibbles_b = vshrq_n_u8(input_b, 4);
