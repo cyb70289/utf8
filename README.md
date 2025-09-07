@@ -2,7 +2,9 @@
 
 # Fast UTF-8 validation with Range algorithm (NEON+SSE4+AVX2)
 
-This is a brand new algorithm to leverage SIMD for fast UTF-8 string validation. Both **NEON**(armv8a) and **SSE4** versions are implemented. **AVX2** implementation contributed by [ioioioio](https://github.com/ioioioio).
+This is a brand new algorithm to leverage SIMD for fast UTF-8 string validation. Used by [protobuf](https://github.com/protocolbuffers/protobuf/tree/main/third_party/utf8_range) and [scylladb](https://github.com/scylladb/scylladb/blob/master/utils/utf8.cc).
+
+Both **NEON**(armv8a) and **SSE4** versions are implemented. **AVX2** implementation contributed by [ioioioio](https://github.com/ioioioio).
 
 Four UTF-8 validation methods are compared on both x86 and Arm platforms. Benchmark result shows range base algorithm is the best solution on Arm, and achieves same performance as [Lemire's approach](https://lemire.me/blog/2018/05/16/validating-utf-8-strings-using-as-little-as-0-7-cycles-per-byte/) on x86.
 
